@@ -64,6 +64,10 @@ protected:
 	float pixel_size;
 	float z_spacing;
 
+	// Task 3: flip controls
+	bool flip_h;
+	bool flip_v;
+
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array scratch_positions;
@@ -108,6 +112,16 @@ public:
 	void set_update_mode(SpineConstant::UpdateMode v);
 	float get_time_scale();
 	void set_time_scale(float v);
+
+	// Task 3: pixel_size / z_spacing / flip_h / flip_v accessors
+	void set_pixel_size(float v);
+	float get_pixel_size();
+	void set_z_spacing(float v);
+	float get_z_spacing();
+	void set_flip_h(bool v);
+	bool get_flip_h();
+	void set_flip_v(bool v);
+	bool get_flip_v();
 
 	static void clear_statics();
 };

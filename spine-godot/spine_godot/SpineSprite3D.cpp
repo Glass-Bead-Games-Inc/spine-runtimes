@@ -142,6 +142,14 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_time_scale"), &SpineSprite3D::get_time_scale);
 	ClassDB::bind_method(D_METHOD("set_time_scale", "v"), &SpineSprite3D::set_time_scale);
 	ClassDB::bind_method(D_METHOD("update_skeleton", "delta"), &SpineSprite3D::update_skeleton);
+	ClassDB::bind_method(D_METHOD("set_pixel_size", "v"), &SpineSprite3D::set_pixel_size);
+	ClassDB::bind_method(D_METHOD("get_pixel_size"), &SpineSprite3D::get_pixel_size);
+	ClassDB::bind_method(D_METHOD("set_z_spacing", "v"), &SpineSprite3D::set_z_spacing);
+	ClassDB::bind_method(D_METHOD("get_z_spacing"), &SpineSprite3D::get_z_spacing);
+	ClassDB::bind_method(D_METHOD("set_flip_h", "v"), &SpineSprite3D::set_flip_h);
+	ClassDB::bind_method(D_METHOD("get_flip_h"), &SpineSprite3D::get_flip_h);
+	ClassDB::bind_method(D_METHOD("set_flip_v", "v"), &SpineSprite3D::set_flip_v);
+	ClassDB::bind_method(D_METHOD("get_flip_v"), &SpineSprite3D::get_flip_v);
 
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
@@ -172,11 +180,15 @@ void SpineSprite3D::_bind_methods() {
 				 "set_skeleton_data_res", "get_skeleton_data_res");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "update_mode", PROPERTY_HINT_ENUM, "Process,Physics,Manual"), "set_update_mode", "get_update_mode");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "time_scale"), "set_time_scale", "get_time_scale");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "pixel_size", PROPERTY_HINT_RANGE, "0.0001,1,0.0001"), "set_pixel_size", "get_pixel_size");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "z_spacing", PROPERTY_HINT_RANGE, "0,1,0.0001"), "set_z_spacing", "get_z_spacing");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "get_flip_h");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 }
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f) {
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -420,9 +432,12 @@ void SpineSprite3D::build_meshes() {
 		int num_verts = (int) world_verts->size() / 2;
 		float z = -((float) i) * z_spacing;
 
+		float sx = flip_h ? -pixel_size : pixel_size;
+		float sy = flip_v ? pixel_size : -pixel_size; // base is -pixel_size (Y-flip); flip_v cancels it
+
 		for (int v = 0; v < num_verts; v++) {
-			float x = world_verts->buffer()[v * 2] * pixel_size;
-			float y = -world_verts->buffer()[v * 2 + 1] * pixel_size; // Y-flip: Spine Y-down -> Godot Y-up
+			float x = world_verts->buffer()[v * 2] * sx;
+			float y = world_verts->buffer()[v * 2 + 1] * sy;
 			Vector3 pos(x, y, z);
 			scratch_positions.push_back(pos);
 			scratch_uvs.push_back(Vector2(uvs->buffer()[v * 2], uvs->buffer()[v * 2 + 1]));
@@ -501,6 +516,42 @@ void SpineSprite3D::set_time_scale(float v) {
 
 float SpineSprite3D::get_time_scale() {
 	return time_scale;
+}
+
+void SpineSprite3D::set_pixel_size(float v) {
+	pixel_size = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+float SpineSprite3D::get_pixel_size() {
+	return pixel_size;
+}
+
+void SpineSprite3D::set_z_spacing(float v) {
+	z_spacing = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+float SpineSprite3D::get_z_spacing() {
+	return z_spacing;
+}
+
+void SpineSprite3D::set_flip_h(bool v) {
+	flip_h = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+bool SpineSprite3D::get_flip_h() {
+	return flip_h;
+}
+
+void SpineSprite3D::set_flip_v(bool v) {
+	flip_v = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+bool SpineSprite3D::get_flip_v() {
+	return flip_v;
 }
 
 void SpineSprite3D::clear_statics() {
