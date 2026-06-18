@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- Godot **4.x only**; no Godot 3.5 path. (Dev branch target: `4.3-stable`.)
-- Must compile in **both** the engine-module build and the **GDExtension** build. Every `RenderingServer`/`RS` and Godot type usage goes through the existing `#ifdef SPINE_GODOT_EXTENSION` shims used elsewhere in `spine_godot/`.
+- Godot **4.x only**; no Godot 3.5 path. Target editor: **Godot 4.6** (`4.6.stable.official`). Primary dev/verify loop is **GDExtension** (built against godot-cpp `4.5`, which loads in the 4.6 editor — see Build / Verify Commands).
+- Must compile in **both** the engine-module build and the **GDExtension** build. Every `RenderingServer`/`RS` and Godot type usage goes through the existing `#ifdef SPINE_GODOT_EXTENSION` shims used elsewhere in `spine_godot/`. The GDExtension config is the one exercised every task; the module config is cross-checked in Task 12.
 - **License header**: every new `.h`/`.cpp` starts with the exact Spine Runtimes License Agreement header block copied verbatim from `spine-godot/spine_godot/SpineSprite.h` lines 1-28.
 - New `.cpp` files compile automatically via the `*.cpp` glob in `spine-godot/spine_godot/SCsub`; **no SCsub edit needed**. Wiring = add the file + a `GDREGISTER_CLASS` line in `register_types.cpp`.
 - Reuse, do not duplicate: skeleton/animation/atlas/clipping classes are shared with `SpineSprite` unchanged.
@@ -20,21 +20,27 @@
 
 ## Build / Verify Commands (used by every task)
 
-**This is a Windows machine.** Use the PowerShell wrappers in `spine-godot/build/` (`*.ps1`). They invoke the upstream `.sh` scripts through **Git Bash** (not the System32 WSL bash) and auto-add the Microsoft Store Python's sandboxed `scons` dir to `PATH` for the build. Run all wrapper commands from `spine-godot/build/`.
+**Target: Godot 4.6 (`4.6.stable.official`), GDExtension primary loop, Windows.** The developer has Godot 4.6 installed at `C:\Users\glass\scoop\apps\godot\current\godot.exe` (on PATH as `godot`). We iterate via the **GDExtension** build (a small spine DLL loaded by that stock editor) rather than compiling a custom engine — far faster per task.
 
-Toolchain prerequisites (verified present on this machine except where noted): Visual Studio 2022 + "Desktop development with C++" (MSVC, auto-detected by scons via vswhere), Git for Windows (Git Bash), Python 3.10, and SCons 4.7.0 (`python -m pip install scons==4.7.0`). The Direct3D 12 SDK is fetched automatically by `build-v4.sh`.
+Use the PowerShell wrappers in `spine-godot/build/` (`*.ps1`). They invoke the upstream `.sh` scripts through **Git Bash** (not the System32 WSL bash) and auto-add the Microsoft Store Python's sandboxed `scons` dir to `PATH`. Run all wrapper commands from `spine-godot/build/`.
 
-- One-time module setup (if `spine-godot/godot/` does not exist):
-  `.\setup.ps1 4.3-stable true`
-- Build the module editor binary:
-  `.\build-v4.ps1`
-  Expected: scons finishes with `scons: done building targets.` and produces `spine-godot/godot/bin/godot.windows.editor.dev.x86_64.exe`.
-- Run the example project for visual checks:
-  `.\run-example.ps1`
-- One-time GDExtension setup + compile check (run once at Task 1 and again at Task 12; confirms both build configs compile):
-  `.\setup-extension.ps1 4.3-stable true`, then build the extension lib via the project's existing extension flow. The plan-enforced requirement is only that new code uses the `#ifdef SPINE_GODOT_EXTENSION` shims so the GDExtension translation unit compiles (see Task 1 Step 5 for the proxy check).
+Toolchain prerequisites (verified present on this machine): Visual Studio 2022 + "Desktop development with C++" (MSVC, auto-detected by scons via vswhere), Git for Windows (Git Bash), Python 3.10, SCons 4.7.0, and the installed Godot 4.6 editor.
 
-> **Linux/macOS equivalent:** the wrappers map 1:1 to the bash scripts — run `./setup.sh 4.3-stable true`, `./build-v4.sh`, and `../godot/bin/godot.<platform>.editor.dev.x86_64 --path ../example` in a normal shell. Per-task steps below reference the bash names (`./build-v4.sh`, `--path ../example`); on Windows substitute the corresponding `.ps1` wrapper from this section.
+**godot-cpp version note:** godot-cpp has **no `4.6` branch yet** (release branches stop at `4.5`; `master` tracks 4.7-dev). We build against **godot-cpp `4.5`** — its bindings load in the 4.6 editor via GDExtension forward-compatibility (`compatibility_minimum = 4.1` + compat hashes), and the spine 3D node uses no 4.6-only API. Revisit/repin when a godot-cpp `4.6` branch ships.
+
+- One-time GDExtension setup (if `spine-godot/godot-cpp/` does not exist):
+  `.\setup-extension.ps1 4.5-stable false`  (the `4.5-stable` arg only selects godot-cpp's 4.5 branch; `false`/dev=off clones no engine)
+- **Per-task build (fast — editor DLL only):**
+  `.\dev-extension.ps1`
+  Expected: scons finishes with `scons: done building targets.` and produces `spine-godot/example-v4-extension/bin/windows/libspine_godot.windows.editor.x86_64.dll`.
+- **Per-task run/visual check:** open the GDExtension example project in the installed 4.6 editor:
+  `.\run-extension-example.ps1`
+  The example project is **`spine-godot/example-v4-extension/`** (NOT the module `example/`). It loads the spine DLL via `spine_godot_extension.gdextension`.
+- **Headless load check** (use in automated steps to confirm the extension loads with no errors before a visual check):
+  `.\run-extension-example.ps1 --headless --quit`
+  Expected: exits 0 with no `Can't open dynamic library` / `Error loading extension` lines.
+
+> **Module build (secondary cross-check, deferred to Task 12):** the module path compiles a custom Godot 4.6 editor with spine baked in: `.\setup.ps1 4.6-stable true` then `.\build-v4.ps1` (long — 30-90+ min first time), run via `.\run-example.ps1`. The plan's per-task steps below say "build" and "run the example"; on this machine that means `.\dev-extension.ps1` + `.\run-extension-example.ps1` against `example-v4-extension`. The module build is only exercised in Task 12 to confirm both configs compile.
 
 > Verification model: spine-godot has **no unit tests**; it is validated by building and observing the example project. Each task below ends with a concrete build + visual check + commit. "Expected" describes exactly what to see.
 
@@ -170,7 +176,7 @@ And add `#include "SpineSprite3D.h"` near the other includes (after `#include "S
 
 - [ ] **Step 4: Build**
 
-Run: `cd spine-godot/build && ./build-v4.sh`
+Run: `.\dev-extension.ps1`
 Expected: `scons: done building targets.`, no errors referencing `SpineSprite3D`.
 
 - [ ] **Step 5: GDExtension shim sanity check**
@@ -180,7 +186,7 @@ Expected: every match sits inside an `#ifdef SPINE_GODOT_EXTENSION` / `#else` br
 
 - [ ] **Step 6: Visual check**
 
-Run: `../godot/bin/godot.windows.editor.dev.x86_64.exe --path ../example`
+Run: `.\run-extension-example.ps1` (run from `spine-godot/build/`)
 In the editor: create a new 3D scene, add a `SpineSprite3D` node (it appears in the Create Node dialog), assign an existing `.spine` skeleton data resource from `example/assets/` to `Skeleton Data Res`, set an animation via the (not-yet-present preview — instead) a temporary script `get_animation_state().set_animation("walk", true, 0)` in `_ready`.
 Expected: scene runs, no crash, no errors in Output; nothing is drawn (no geometry yet). Confirm via a `print(get_skeleton())` that the skeleton is non-null.
 
@@ -308,7 +314,7 @@ In `SpineSprite3D.h` add `float pixel_size; float z_spacing;` and the four scrat
 
 - [ ] **Step 4: Build**
 
-Run: `cd spine-godot/build && ./build-v4.sh`
+Run: `.\dev-extension.ps1`
 Expected: `scons: done building targets.`
 
 - [ ] **Step 5: Visual check**
@@ -364,7 +370,7 @@ ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 
 - [ ] **Step 4: Build**
 
-Run: `cd spine-godot/build && ./build-v4.sh` — Expected: `scons: done building targets.`
+Run: `.\dev-extension.ps1` — Expected: `scons: done building targets.`
 
 - [ ] **Step 5: Visual check**
 
@@ -413,7 +419,7 @@ For PMA + additive/multiply the premultiplied color must not be re-divided; sinc
 
 In `build_meshes()`, compute `spine::BlendMode blend = slot->getData().getBlendMode();` and read the page PMA flag from the atlas page (`((spine::AtlasRegion*)region)->getPage()->pma` — confirm the accessor name against `spine::AtlasPage`; it exposes `pma`). Flush the current surface whenever `ro`, `blend`, or `pma` changes. In `flush()`, select `statics.get_material(blend, false, pma)` instead of the hardcoded Normal.
 
-- [ ] **Step 3: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 3: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 4: Visual check**
 
@@ -492,7 +498,7 @@ ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabl
 
 Setter stores + rebuilds.
 
-- [ ] **Step 5: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 5: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 6: Visual check**
 
@@ -555,7 +561,7 @@ ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shaded"), "set_shaded", "get_shaded");
 
 Setter stores + rebuilds.
 
-- [ ] **Step 4: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 4: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 5: Visual check**
 
@@ -584,7 +590,7 @@ Port `SkeletonClipping` so `ClippingAttachment` masks geometry, matching 2D.
 
 In `build_meshes()`, replicate the clip handling from `SpineSprite::update_meshes` (`SpineSprite.cpp` lines 907-926): on `ClippingAttachment` call `skeleton_clipper->clipStart(...)` and `continue`; for region/mesh, if `skeleton_clipper->isClipping()` call `clipTriangles(vertices, indices, uvs, 2)`, swap to clipped vertices/uvs/indices (these are 2-float xy), skip if empty; call `skeleton_clipper->clipEnd(*slot)` for slots that end clipping and `clipEnd2()`... — match the exact call sequence in the 2D code, including `clipEnd(*slot)` on skipped/inactive slots and a final `skeleton_clipper->clipEnd()` after the loop. Because clipped output is xy-interleaved like the unclipped path, the Vector3 mapping (pixel_size, Y-flip, z) is unchanged.
 
-- [ ] **Step 2: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 2: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 3: Visual check**
 
@@ -633,7 +639,7 @@ RID mat_rid = custom.is_valid() ? custom->get_rid() : statics.get_material(blend
 
 Note: a custom material won't get `albedo_tex` auto-set (it's the user's material); document that custom 3D materials should expose their own texture binding. This matches 2D behavior where custom materials replace the default.
 
-- [ ] **Step 3: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 3: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 4: Visual check**
 
@@ -705,7 +711,7 @@ Before building, collect slot→`SpineSlotNode3D` by scanning children (mirror `
 
 `register_types.cpp`: `#include` both headers; add `GDREGISTER_CLASS(SpineSlotNode3D);` and `GDREGISTER_CLASS(SpineBoneNode3D);` after the 2D `SpineSlotNode`/`SpineBoneNode` registrations (line ~186).
 
-- [ ] **Step 6: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 6: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 7: Visual check**
 
@@ -735,7 +741,7 @@ Port the inspector preview (skin/animation/frame/time) so animations can be scru
 
 Copy `SpineSprite::_get_property_list` (lines 693-744), `_get` (746-767), `_set` (792-820), and the file-local `update_preview_animation` helper (769-790) into `SpineSprite3D`, unchanged except the class name. Add the `ADD_GROUP("Preview", "")` line at the end of `_bind_methods` (the properties are injected by `_get_property_list`). Initialize the four members in the constructor (`preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0)`).
 
-- [ ] **Step 2: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 2: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 3: Visual check**
 
@@ -769,7 +775,7 @@ Copy the full debug field set, getters/setters, and the `ADD_GROUP("Debug","")` 
 
 Add `void build_debug_mesh();` called at the end of `update_skeleton` after `build_meshes()`. It produces a `PRIMITIVE_LINES` surface from line segments, reusing the geometry the 2D `SpineSprite::draw`/`draw_bone` computes (bones as segments between bone world positions; regions/meshes as their edges; bounding boxes; paths; clipping polygons), each emitted as `Vector3(x*pixel_size, -y*pixel_size, z + epsilon)` with the corresponding debug color in `ARRAY_COLOR`. Use a single unshaded, `vertex_color_use_as_albedo`, no-depth-test `ShaderMaterial` from statics (one extra variant: `lines_material`). Bone thickness maps to nothing in 3D lines (lines are 1px); document that `bones_thickness` is ignored in 3D, or draw bones as thin quads if thickness > 1 (keep it as ignored for v1 and note it).
 
-- [ ] **Step 3: Build** — `./build-v4.sh` — Expected: `scons: done building targets.`
+- [ ] **Step 3: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
 - [ ] **Step 4: Visual check**
 
@@ -785,22 +791,23 @@ git commit -m "[spine-godot] SpineSprite3D: 3D debug rendering"
 
 ---
 
-### Task 12: Example demo scene, validation pass, GDExtension check, docs
+### Task 12: Example demo scene, validation pass, module cross-check, docs
 
-Add a demonstrative 3D scene, run the full manual checklist, confirm the GDExtension config compiles, and note the feature in the README.
+Add a demonstrative 3D scene to the GDExtension example project, run the full manual checklist, confirm the **module** config also compiles (the GDExtension config has been built every task), and note the feature in the README.
 
 **Files:**
-- Create: `spine-godot/example/spine_sprite_3d.tscn`
-- Create: `spine-godot/example/SpineSprite3DDemo.gd`
+- Create: `spine-godot/example-v4-extension/spine_sprite_3d.tscn`
+- Create: `spine-godot/example-v4-extension/SpineSprite3DDemo.gd`
+- Copy: a skeleton's assets (`.skel`/`.json` + `.atlas` + page texture) from `spine-godot/example/assets/<skeleton>/` into `spine-godot/example-v4-extension/assets/<skeleton>/` (the extension example project starts without spine assets), and import them by opening the project once.
 - Modify: `spine-godot/README.md`
 
 - [ ] **Step 1: Build the demo scene**
 
-In the running editor, create `spine_sprite_3d.tscn`: a `Node3D` root with a `Camera3D`, a `DirectionalLight3D`, a `MeshInstance3D` floor (`PlaneMesh`) and a `MeshInstance3D` pillar (`BoxMesh`) for occlusion, and three `SpineSprite3D` instances using an existing skeleton from `example/assets/`: (a) free-oriented, (b) `billboard = Enabled`, (c) `shaded = true` with `z_spacing > 0` positioned to intersect the pillar. Attach `SpineSprite3DDemo.gd` to set walk/idle animations in `_ready` via `get_animation_state().set_animation(...)`.
+In the running editor (`.\run-extension-example.ps1`), create `spine_sprite_3d.tscn`: a `Node3D` root with a `Camera3D`, a `DirectionalLight3D`, a `MeshInstance3D` floor (`PlaneMesh`) and a `MeshInstance3D` pillar (`BoxMesh`) for occlusion, and three `SpineSprite3D` instances using the copied skeleton: (a) free-oriented, (b) `billboard = Enabled`, (c) `shaded = true` with `z_spacing > 0` positioned to intersect the pillar. Attach `SpineSprite3DDemo.gd` to set walk/idle animations in `_ready` via `get_animation_state().set_animation(...)`.
 
 - [ ] **Step 2: Run the validation checklist**
 
-Run: `../godot/bin/godot.windows.editor.dev.x86_64.exe --path ../example` and open `spine_sprite_3d.tscn`, press Play. Verify each, fixing regressions in the relevant task's file if any fail:
+Run: `.\run-extension-example.ps1` (run from `spine-godot/build/`) and open `spine_sprite_3d.tscn`, press Play. Verify each, fixing regressions in the relevant task's file if any fail:
   - Draw order correct on all three instances.
   - Each blend mode renders correctly.
   - Clipping masks correctly.
@@ -811,10 +818,11 @@ Run: `../godot/bin/godot.windows.editor.dev.x86_64.exe --path ../example` and op
   - Editor preview scrubs animations.
   - Performance: with the same skeleton, frame time is comparable to a `SpineSprite` 2D scene (no order-of-magnitude regression).
 
-- [ ] **Step 3: GDExtension compile check**
+- [ ] **Step 3: Module build cross-check**
 
-Run: `cd spine-godot/build && ./setup-extension.sh 4.3-stable true` (one-time if `godot-cpp/` absent), then build the extension library per the repo's extension flow (`build-extension.sh` if present, else the documented godot-cpp scons invocation).
-Expected: the GDExtension `.dll` builds with the new `SpineSprite3D`/`SpineSlotNode3D`/`SpineBoneNode3D` translation units, confirming the `#ifdef SPINE_GODOT_EXTENSION` shims are correct. Fix any unguarded `RenderingServer`/type usage flagged by the compiler.
+The GDExtension config has been built every task; this step confirms the **engine-module** config also compiles (the second half of the build-matrix constraint).
+Run (from `spine-godot/build/`): `.\setup.ps1 4.6-stable true` (one-time if `spine-godot/godot/` absent — clones + builds a custom Godot 4.6 editor, 30-90+ min first time) then `.\build-v4.ps1`.
+Expected: `scons: done building targets.` with the new `SpineSprite3D`/`SpineSlotNode3D`/`SpineBoneNode3D` translation units compiling under the module config (no `#ifdef SPINE_GODOT_EXTENSION` leak). Then `.\run-example.ps1`, add a `SpineSprite3D`, and confirm it renders identically to the GDExtension build. Fix any module-only compile errors.
 
 - [ ] **Step 4: Document**
 
@@ -823,7 +831,7 @@ In `spine-godot/README.md`, under the feature description, add one line: `spine-
 - [ ] **Step 5: Commit**
 
 ```bash
-git add spine-godot/example/spine_sprite_3d.tscn spine-godot/example/SpineSprite3DDemo.gd spine-godot/README.md
+git add spine-godot/example-v4-extension/spine_sprite_3d.tscn spine-godot/example-v4-extension/SpineSprite3DDemo.gd spine-godot/example-v4-extension/assets spine-godot/README.md
 git commit -m "[spine-godot] Add SpineSprite3D example scene and docs"
 ```
 
@@ -831,6 +839,7 @@ git commit -m "[spine-godot] Add SpineSprite3D example scene and docs"
 
 ## Self-Review Notes
 
-- **Spec coverage:** node/class structure (T1), combined-mesh + submission-order rendering + AABB (T2), pixel_size/z_spacing/flip + depth interaction (T3), blend modes + PMA + shader library (T4), billboard modes (T5), shaded + normal/specular (T6), clipping (T7), custom materials sprite-level (T8) + per-slot/slot+bone nodes + 3D bone transforms (T9), editor preview (T10), debug rendering (T11), example scene + validation + GDExtension + docs (T12). Build matrix (module + GDExtension) covered by the shim rule + T1 Step 5 + T12 Step 3. Non-goals (3.5, two-color, screen) excluded.
+- **Spec coverage:** node/class structure (T1), combined-mesh + submission-order rendering + AABB (T2), pixel_size/z_spacing/flip + depth interaction (T3), blend modes + PMA + shader library (T4), billboard modes (T5), shaded + normal/specular (T6), clipping (T7), custom materials sprite-level (T8) + per-slot/slot+bone nodes + 3D bone transforms (T9), editor preview (T10), debug rendering (T11), example scene + validation + module cross-check + docs (T12). Build matrix: GDExtension config built every task (primary loop) + T1 Step 5 shim check; module config cross-checked in T12 Step 3. Non-goals (3.5, two-color, screen) excluded.
 - **Open implementation details from the spec** are resolved here: surface material via `mesh_surface_set_material` + per-instance shader params (T2/T5); shaders code-generated as strings (T2/T4/T6); `z_spacing` default `0.0`, not auto-scaled (T2/T3); billboard AABB expansion = max-extent cube (T5).
-- **Known follow-ups to confirm during execution (not blockers):** exact `spine::AtlasPage` PMA accessor name (T4 Step 2), bone-basis column signs (T9 Step 1 — verified visually in T9 Step 7), and whether the repo has a ready `build-extension.sh` vs manual godot-cpp scons (T12 Step 3).
+- **Build path (Windows, this machine):** Godot 4.6 (`4.6.stable.official`); per-task loop = `.\dev-extension.ps1` (GDExtension editor DLL, godot-cpp `4.5`) + `.\run-extension-example.ps1` on `example-v4-extension`; module build cross-checked once in T12. See Build / Verify Commands.
+- **Known follow-ups to confirm during execution (not blockers):** exact `spine::AtlasPage` PMA accessor name (T4 Step 2), and bone-basis column signs (T9 Step 1 — verified visually in T9 Step 7).
