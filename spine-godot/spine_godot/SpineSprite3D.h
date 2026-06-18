@@ -32,6 +32,7 @@
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineConstant.h"
+#include "SpineSpriteOwner.h"
 #ifdef SPINE_GODOT_EXTENSION
 #include "SpineCommon.h"
 #include <godot_cpp/classes/geometry_instance3d.hpp>

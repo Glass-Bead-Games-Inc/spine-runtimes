@@ -29,10 +29,20 @@
 
 #pragma once
 
-#include "SpineCommon.h"
+// SpineSpriteOwner.h deliberately does NOT include SpineCommon.h to avoid a
+// circular dependency: SpineCommon.h -> SpineSpriteOwner.h -> SpineCommon.h.
+// It includes the minimal Godot headers required for Ref<> and Node* directly.
 #ifdef SPINE_GODOT_EXTENSION
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/node.hpp>
+using namespace godot;
 #else
+#include "core/version.h"
+#if VERSION_MAJOR > 3
+#include "core/object/ref_counted.h"
+#else
+#include "core/reference.h"
+#endif
 #include "scene/main/node.h"
 #endif
 
