@@ -31,13 +31,105 @@
 #include "SpineEvent.h"
 #include "SpineTrackEntry.h"
 #include "SpineSkeleton.h"
+#include "SpineRendererObject.h"
 
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/shader.hpp>
+#include <godot_cpp/classes/shader_material.hpp>
+#include <godot_cpp/classes/mesh.hpp>
 #include <godot_cpp/variant/variant.hpp>
+#else
+#include "scene/resources/shader.h"
+#include "scene/resources/shader_material.h"
+#include "scene/resources/mesh.h"
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
+#include "servers/rendering/rendering_server.h"
+#else
+#include "servers/rendering_server.h"
 #endif
+#endif
+
+#include <spine/RegionAttachment.h>
+#include <spine/MeshAttachment.h>
+
+// ---------------------------------------------------------------------------
+// SpineSprite3DStatics — shader/material singleton for 3D spine rendering.
+// Modeled on SpineSpriteStatics in SpineSprite.cpp.
+// ---------------------------------------------------------------------------
+struct SpineSprite3DStatics {
+private:
+	static SpineSprite3DStatics *_instance;
+
+	// Build GLSL source for the requested variant.
+	// Task 2 only fills {Normal, unshaded=true, pma=false}.
+	static String build_shader_source(spine::BlendMode /*blend*/, bool /*shaded*/, bool /*pma*/) {
+		// Only one variant this task; extend in later tasks.
+		return String(
+				"shader_type spatial;\n"
+				"render_mode blend_mix, cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
+				"\n"
+				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				"\n"
+				"void vertex() {\n"
+				"    // billboard inserted in Task 5; identity for now\n"
+				"}\n"
+				"\n"
+				"void fragment() {\n"
+				"    vec4 tex = texture(albedo_tex, UV);\n"
+				"    ALBEDO = tex.rgb * COLOR.rgb;\n"
+				"    ALPHA = tex.a * COLOR.a;\n"
+				"}\n");
+	}
+
+	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma) {
+		Ref<Shader> shader;
+		shader.instantiate();
+		shader->set_code(build_shader_source(blend, shaded, pma));
+
+		Ref<ShaderMaterial> mat;
+		mat.instantiate();
+		mat->set_shader(shader);
+		return mat;
+	}
+
+public:
+	// Cache key: blend * 4 + shaded * 2 + pma  (max index = 3*4+2+1 = 15)
+	Ref<ShaderMaterial> materials[16];
+	int sprite_count;
+
+	SpineSprite3DStatics() : sprite_count(0) {
+		// Pre-build the one variant we need for Task 2.
+		int key = (int) spine::BlendMode_Normal * 4 + 0 * 2 + 0; // blend_normal, unshaded, straight
+		materials[key] = make_material(spine::BlendMode_Normal, false, false);
+	}
+
+	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma) {
+		int key = (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
+		if (!materials[key].is_valid()) {
+			materials[key] = make_material(blend, shaded, pma);
+		}
+		return materials[key];
+	}
+
+	static SpineSprite3DStatics &instance() {
+		if (!_instance) {
+			_instance = new SpineSprite3DStatics();
+		}
+		return *_instance;
+	}
+
+	static void clear() {
+		if (_instance) {
+			delete _instance;
+		}
+		_instance = nullptr;
+	}
+};
+
+SpineSprite3DStatics *SpineSprite3DStatics::_instance = nullptr;
 
 void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_skeleton_data_res", "skeleton_data_res"), &SpineSprite3D::set_skeleton_data_res);
@@ -83,7 +175,9 @@ void SpineSprite3D::_bind_methods() {
 }
 
 SpineSprite3D::SpineSprite3D()
-	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false) {
+	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
+	  pixel_size(0.01f), z_spacing(0.0f) {
+	scratch_world_verts.ensureCapacity(1200);
 }
 
 SpineSprite3D::~SpineSprite3D() {
@@ -191,7 +285,172 @@ void SpineSprite3D::update_skeleton(float delta) {
 }
 
 void SpineSprite3D::build_meshes() {
-	// Task 2 will implement mesh building.
+	// Full rebuild every frame (simple approach for Task 2).
+	if (mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->free_rid(mesh);
+#else
+		RS::get_singleton()->free(mesh);
+#endif
+		mesh = RID();
+	}
+
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+	spine::Skeleton *sk = skeleton->get_spine_object();
+	auto &statics = SpineSprite3DStatics::instance();
+
+	mesh = RS::get_singleton()->mesh_create();
+	AABB aabb;
+	bool aabb_init = false;
+	int surface_index = 0;
+
+	SpineRendererObject *current_ro = nullptr;
+
+	// Reset scratch buffers.
+	scratch_positions.clear();
+	scratch_uvs.clear();
+	scratch_colors.clear();
+	scratch_indices.clear();
+
+	// Flush the accumulated scratch buffers as one surface.
+	// Captures current_ro and surface_index by reference.
+	auto flush = [&]() {
+		if (scratch_indices.size() == 0) return;
+
+		Array arrays;
+		arrays.resize(Mesh::ARRAY_MAX);
+		arrays[Mesh::ARRAY_VERTEX] = scratch_positions;
+		arrays[Mesh::ARRAY_TEX_UV] = scratch_uvs;
+		arrays[Mesh::ARRAY_COLOR] = scratch_colors;
+		arrays[Mesh::ARRAY_INDEX] = scratch_indices;
+
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
+				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+
+		if (current_ro && current_ro->texture.is_valid()) {
+			Ref<ShaderMaterial> mat = statics.get_material(spine::BlendMode_Normal, false, false);
+			mat->set_shader_parameter("albedo_tex", current_ro->texture);
+			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, mat->get_rid());
+		}
+		surface_index++;
+
+		// Reset scratch for next surface.
+		scratch_positions.clear();
+		scratch_uvs.clear();
+		scratch_colors.clear();
+		scratch_indices.clear();
+	};
+
+	for (int i = 0, n = (int) sk->getSlots().size(); i < n; i++) {
+		spine::Slot *slot = sk->getDrawOrder().getAppliedPose()[i];
+		spine::Attachment *attachment = slot->getAppliedPose().getAttachment();
+
+		if (!attachment || !slot->getBone().isActive()) {
+			skeleton_clipper->clipEnd(*slot);
+			continue;
+		}
+
+		spine::Color sk_color = sk->getColor();
+		spine::Color slot_color = slot->getAppliedPose().getColor();
+		spine::Color tint(sk_color.r * slot_color.r, sk_color.g * slot_color.g,
+				sk_color.b * slot_color.b, sk_color.a * slot_color.a);
+
+		SpineRendererObject *ro = nullptr;
+		spine::Array<float> *world_verts = &scratch_world_verts;
+		spine::Array<float> *uvs = nullptr;
+		spine::Array<unsigned short> *indices = nullptr;
+
+		if (attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
+			auto region = (spine::RegionAttachment *) attachment;
+			auto &sequence = region->getSequence();
+			int seq_index = sequence.resolveIndex(slot->getAppliedPose());
+
+			world_verts->setSize(8, 0);
+			region->computeWorldVertices(*slot, sequence.getOffsets(seq_index).buffer(), world_verts->buffer(), 0);
+			ro = (SpineRendererObject *) ((spine::AtlasRegion *) sequence.getRegion(seq_index))->getPage()->texture;
+			uvs = &sequence.getUVs(seq_index);
+
+			// Build quad indices for region attachments.
+			static spine::Array<unsigned short> quad_idx;
+			if (quad_idx.size() == 0) {
+				quad_idx.setSize(6, 0);
+				quad_idx[0] = 0; quad_idx[1] = 1; quad_idx[2] = 2;
+				quad_idx[3] = 2; quad_idx[4] = 3; quad_idx[5] = 0;
+			}
+			indices = &quad_idx;
+
+			auto &att_color = region->getColor();
+			tint.r *= att_color.r;
+			tint.g *= att_color.g;
+			tint.b *= att_color.b;
+			tint.a *= att_color.a;
+		} else if (attachment->getRTTI().isExactly(spine::MeshAttachment::rtti)) {
+			auto mesh_att = (spine::MeshAttachment *) attachment;
+			auto &sequence = mesh_att->getSequence();
+			int seq_index = sequence.resolveIndex(slot->getAppliedPose());
+
+			world_verts->setSize(mesh_att->getWorldVerticesLength(), 0);
+			mesh_att->computeWorldVertices(*sk, *slot, 0, mesh_att->getWorldVerticesLength(), world_verts->buffer(), 0, 2);
+			ro = (SpineRendererObject *) ((spine::AtlasRegion *) sequence.getRegion(seq_index))->getPage()->texture;
+			uvs = &sequence.getUVs(seq_index);
+			indices = &mesh_att->getTriangles();
+
+			auto &att_color = mesh_att->getColor();
+			tint.r *= att_color.r;
+			tint.g *= att_color.g;
+			tint.b *= att_color.b;
+			tint.a *= att_color.a;
+		} else {
+			skeleton_clipper->clipEnd(*slot);
+			continue;
+		}
+
+		if (!ro || !uvs || !indices || indices->size() == 0) {
+			skeleton_clipper->clipEnd(*slot);
+			continue;
+		}
+
+		// Flush if we switch texture page.
+		if (current_ro && ro != current_ro) {
+			flush();
+		}
+		current_ro = ro;
+
+		int base = (int) scratch_positions.size();
+		int num_verts = (int) world_verts->size() / 2;
+		float z = -((float) i) * z_spacing;
+
+		for (int v = 0; v < num_verts; v++) {
+			float x = world_verts->buffer()[v * 2] * pixel_size;
+			float y = -world_verts->buffer()[v * 2 + 1] * pixel_size; // Y-flip: Spine Y-down -> Godot Y-up
+			Vector3 pos(x, y, z);
+			scratch_positions.push_back(pos);
+			scratch_uvs.push_back(Vector2(uvs->buffer()[v * 2], uvs->buffer()[v * 2 + 1]));
+			scratch_colors.push_back(Color(tint.r, tint.g, tint.b, tint.a));
+
+			if (!aabb_init) {
+				aabb.position = pos;
+				aabb.size = Vector3();
+				aabb_init = true;
+			} else {
+				aabb.expand_to(pos);
+			}
+		}
+
+		for (int t = 0; t < (int) indices->size(); t++) {
+			scratch_indices.push_back(base + (int) indices->buffer()[t]);
+		}
+
+		skeleton_clipper->clipEnd(*slot);
+	}
+	skeleton_clipper->clipEnd();
+
+	flush(); // flush final surface
+
+	if (aabb_init) {
+		RS::get_singleton()->mesh_set_custom_aabb(mesh, aabb);
+	}
+	set_base(mesh);
 }
 
 void SpineSprite3D::callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) {
@@ -245,5 +504,5 @@ float SpineSprite3D::get_time_scale() {
 }
 
 void SpineSprite3D::clear_statics() {
-	// Task 2 will add statics teardown.
+	SpineSprite3DStatics::clear();
 }

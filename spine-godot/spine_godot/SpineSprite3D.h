@@ -60,12 +60,32 @@ protected:
 
 	RID mesh; // owned RS mesh, created in Task 2
 
+	// Task 2: rendering parameters (exposed as properties in Task 3)
+	float pixel_size;
+	float z_spacing;
+
+	// Task 2: scratch buffers for mesh building
+#ifdef SPINE_GODOT_EXTENSION
+	PackedVector3Array scratch_positions;
+	PackedVector2Array scratch_uvs;
+	PackedColorArray scratch_colors;
+	PackedInt32Array scratch_indices;
+#else
+	Vector<Vector3> scratch_positions;
+	Vector<Vector2> scratch_uvs;
+	Vector<Color> scratch_colors;
+	Vector<int> scratch_indices;
+#endif
+
+	// Task 2: scratch float buffer for computeWorldVertices
+	spine::Array<float> scratch_world_verts;
+
 	static void _bind_methods();
 	void _notification(int what);
 
 	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
 
-	void build_meshes(); // Task 2 implements; empty for now
+	void build_meshes();
 
 public:
 	SpineSprite3D();
