@@ -20,18 +20,21 @@
 
 ## Build / Verify Commands (used by every task)
 
-These run from `spine-godot/build/` in Git Bash. Setup is one-time; build+run repeats per task.
+**This is a Windows machine.** Use the PowerShell wrappers in `spine-godot/build/` (`*.ps1`). They invoke the upstream `.sh` scripts through **Git Bash** (not the System32 WSL bash) and auto-add the Microsoft Store Python's sandboxed `scons` dir to `PATH` for the build. Run all wrapper commands from `spine-godot/build/`.
+
+Toolchain prerequisites (verified present on this machine except where noted): Visual Studio 2022 + "Desktop development with C++" (MSVC, auto-detected by scons via vswhere), Git for Windows (Git Bash), Python 3.10, and SCons 4.7.0 (`python -m pip install scons==4.7.0`). The Direct3D 12 SDK is fetched automatically by `build-v4.sh`.
 
 - One-time module setup (if `spine-godot/godot/` does not exist):
-  `./setup.sh 4.3-stable true`
+  `.\setup.ps1 4.3-stable true`
 - Build the module editor binary:
-  `./build-v4.sh`
+  `.\build-v4.ps1`
   Expected: scons finishes with `scons: done building targets.` and produces `spine-godot/godot/bin/godot.windows.editor.dev.x86_64.exe`.
 - Run the example project for visual checks:
-  `../godot/bin/godot.windows.editor.dev.x86_64.exe --path ../example`
-- One-time GDExtension compile check (run once at Task 1 and again at Task 12; confirms both build configs compile):
-  `./setup-extension.sh 4.3-stable true` then
-  `cd ../godot-cpp && scons target=editor` is **not** needed; instead build the extension lib with the project's existing flow — the only requirement this plan enforces is that the code uses the `#ifdef SPINE_GODOT_EXTENSION` shims so the GDExtension translation unit compiles. A fast proxy check is to grep that no new raw `RenderingServer::get_singleton()` call is left outside an `#ifdef` (see Task 1 Step).
+  `.\run-example.ps1`
+- One-time GDExtension setup + compile check (run once at Task 1 and again at Task 12; confirms both build configs compile):
+  `.\setup-extension.ps1 4.3-stable true`, then build the extension lib via the project's existing extension flow. The plan-enforced requirement is only that new code uses the `#ifdef SPINE_GODOT_EXTENSION` shims so the GDExtension translation unit compiles (see Task 1 Step 5 for the proxy check).
+
+> **Linux/macOS equivalent:** the wrappers map 1:1 to the bash scripts — run `./setup.sh 4.3-stable true`, `./build-v4.sh`, and `../godot/bin/godot.<platform>.editor.dev.x86_64 --path ../example` in a normal shell. Per-task steps below reference the bash names (`./build-v4.sh`, `--path ../example`); on Windows substitute the corresponding `.ps1` wrapper from this section.
 
 > Verification model: spine-godot has **no unit tests**; it is validated by building and observing the example project. Each task below ends with a concrete build + visual check + commit. "Expected" describes exactly what to see.
 
