@@ -174,11 +174,16 @@ protected:
 };
 
 class SpineSprite;
+class SpineSprite3D;
 
 template<typename OBJECT>
 class SpineSpriteOwnedObject : public SpineObjectWrapper {
 public:
 	void set_spine_object(const SpineSprite *_owner, OBJECT *_object) {
+		_set_spine_object_internal(_owner, _object);
+	}
+
+	void set_spine_object(const SpineSprite3D *_owner, OBJECT *_object) {
 		_set_spine_object_internal(_owner, _object);
 	}
 

@@ -37,6 +37,7 @@
 #include "SpineSkeletonFileResource.h"
 #include "SpineSkeletonDataResource.h"
 #include "SpineSprite.h"
+#include "SpineSprite3D.h"
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineAnimationTrack.h"
@@ -146,6 +147,7 @@ void register_spine_godot_types() {
 	GDREGISTER_CLASS(SpineSkeletonDataResource);
 	GDREGISTER_CLASS(SpineAnimationMix);
 	GDREGISTER_CLASS(SpineSprite);
+	GDREGISTER_CLASS(SpineSprite3D);
 	GDREGISTER_CLASS(SpineMesh2D);
 	GDREGISTER_CLASS(SpineSkeleton);
 	GDREGISTER_CLASS(SpineAnimationState);
@@ -233,6 +235,7 @@ void register_spine_godot_types() {
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
+		SpineSprite3D::clear_statics();
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;
@@ -246,6 +249,7 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
+		SpineSprite3D::clear_statics();
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;

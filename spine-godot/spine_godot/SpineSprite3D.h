@@ -29,61 +29,58 @@
 
 #pragma once
 
-#include "SpineCommon.h"
 #include "SpineSkeleton.h"
+#include "SpineAnimationState.h"
+#include "SpineConstant.h"
+#ifdef SPINE_GODOT_EXTENSION
+#include "SpineCommon.h"
+#include <godot_cpp/classes/geometry_instance3d.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/templates/vector.hpp>
+#else
+#include "scene/3d/visual_instance_3d.h" // declares GeometryInstance3D
+#endif
 
-class SpineTrackEntry;
-class SpineSprite3D;
+#include <spine/SkeletonClipping.h>
 
-class SpineAnimationState : public REFCOUNTED {
-	GDCLASS(SpineAnimationState, REFCOUNTED)
+class SpineSlotNode3D;
+
+class SpineSprite3D : public GeometryInstance3D, public spine::AnimationStateListenerObject {
+	GDCLASS(SpineSprite3D, GeometryInstance3D)
 
 protected:
-	static void _bind_methods();
+	Ref<SpineSkeletonDataResource> skeleton_data_res;
+	Ref<SpineSkeleton> skeleton;
+	Ref<SpineAnimationState> animation_state;
+	SpineConstant::UpdateMode update_mode;
+	float time_scale;
+	spine::SkeletonClipping *skeleton_clipper;
+	bool modified_bones;
 
-private:
-	spine::AnimationState *animation_state;
-	SpineSprite *sprite;
-	SpineSprite3D *sprite3d;
+	RID mesh; // owned RS mesh, created in Task 2
+
+	static void _bind_methods();
+	void _notification(int what);
+
+	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
+
+	void build_meshes(); // Task 2 implements; empty for now
 
 public:
-	SpineAnimationState();
-	~SpineAnimationState();
+	SpineSprite3D();
+	~SpineSprite3D();
 
-	spine::AnimationState *get_spine_object() {
-		return animation_state;
-	}
+	void set_skeleton_data_res(const Ref<SpineSkeletonDataResource> &res);
+	Ref<SpineSkeletonDataResource> get_skeleton_data_res();
+	Ref<SpineSkeleton> get_skeleton();
+	Ref<SpineAnimationState> get_animation_state();
+	void on_skeleton_data_changed();
+	void update_skeleton(float delta);
 
-	void set_spine_sprite(SpineSprite *sprite);
-	void set_spine_sprite(SpineSprite3D *sprite);
-
-	void update(float delta);
-
-	bool apply(Ref<SpineSkeleton> skeleton);
-
-	void clear_tracks();
-
-	void clear_track(int track_id);
-
-	int get_num_tracks();
-
-	Ref<SpineTrackEntry> set_animation(const String &animation_name, bool loop, int track_id);
-
-	Ref<SpineTrackEntry> add_animation(const String &animation_name, float delay, bool loop, int track_id);
-
-	Ref<SpineTrackEntry> set_empty_animation(int track_id, float mix_duration);
-
-	Ref<SpineTrackEntry> add_empty_animation(int track_id, float mix_duration, float delay);
-
-	void set_empty_animations(float mix_duration);
-
-	Ref<SpineTrackEntry> get_track(int track_index);
-
+	SpineConstant::UpdateMode get_update_mode();
+	void set_update_mode(SpineConstant::UpdateMode v);
 	float get_time_scale();
+	void set_time_scale(float v);
 
-	void set_time_scale(float time_scale);
-
-	void disable_queue();
-
-	void enable_queue();
+	static void clear_statics();
 };

@@ -30,6 +30,7 @@
 #include "SpineSkeleton.h"
 #include "SpineCommon.h"
 #include "SpineSprite.h"
+#include "SpineSprite3D.h"
 #include "SpineIkConstraint.h"
 #include "SpineTransformConstraint.h"
 #include "SpinePathConstraint.h"
@@ -88,7 +89,7 @@ void SpineSkeleton::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("physics_rotate", "x", "y", "degrees"), &SpineSkeleton::physics_rotate);
 }
 
-SpineSkeleton::SpineSkeleton() : skeleton(nullptr), sprite(nullptr), last_skin(nullptr) {
+SpineSkeleton::SpineSkeleton() : skeleton(nullptr), sprite(nullptr), sprite3d(nullptr), last_skin(nullptr) {
 }
 
 SpineSkeleton::~SpineSkeleton() {
@@ -100,11 +101,22 @@ void SpineSkeleton::set_spine_sprite(SpineSprite *_sprite) {
 	delete skeleton;
 	skeleton = nullptr;
 	sprite = _sprite;
+	sprite3d = nullptr;
 	if (!sprite || !sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
 	skeleton = new spine::Skeleton(*sprite->get_skeleton_data_res()->get_skeleton_data());
 }
 
+void SpineSkeleton::set_spine_sprite(SpineSprite3D *_sprite) {
+	delete skeleton;
+	skeleton = nullptr;
+	sprite = nullptr;
+	sprite3d = _sprite;
+	if (!sprite3d || !sprite3d->get_skeleton_data_res().is_valid() || !sprite3d->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	skeleton = new spine::Skeleton(*sprite3d->get_skeleton_data_res()->get_skeleton_data());
+}
+
 Ref<SpineSkeletonDataResource> SpineSkeleton::get_skeleton_data_res() const {
+	if (sprite3d) return sprite3d->get_skeleton_data_res();
 	if (!sprite) return nullptr;
 	return sprite->get_skeleton_data_res();
 }
