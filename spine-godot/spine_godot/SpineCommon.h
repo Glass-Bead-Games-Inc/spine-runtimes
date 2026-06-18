@@ -117,6 +117,8 @@ using namespace godot;
 #define SPINE_STRING(x) spine::String((x).utf8().ptr())
 #define SPINE_STRING_TMP(x) spine::String((x).utf8().ptr(), true, false)
 
+#include "SpineSpriteOwner.h"
+
 // Can't do template classes with Godot's object model :(
 class SpineObjectWrapper : public REFCOUNTED {
 	GDCLASS(SpineObjectWrapper, REFCOUNTED)
@@ -173,26 +175,25 @@ protected:
 	}
 };
 
-class SpineSprite;
-class SpineSprite3D;
-
 template<typename OBJECT>
 class SpineSpriteOwnedObject : public SpineObjectWrapper {
-public:
-	void set_spine_object(const SpineSprite *_owner, OBJECT *_object) {
-		_set_spine_object_internal(_owner, _object);
-	}
+	// Store the interface pointer directly. Never C-cast between SpineSpriteOwner*
+	// and Object*: under multiple inheritance they are different addresses. The
+	// Object* for the wrapper base is obtained via owner_as_node() (a valid Node->Object upcast).
+	SpineSpriteOwner *owner_iface = nullptr;
 
-	void set_spine_object(const SpineSprite3D *_owner, OBJECT *_object) {
-		_set_spine_object_internal(_owner, _object);
+public:
+	void set_spine_object(SpineSpriteOwner *_owner, OBJECT *_object) {
+		owner_iface = _owner;
+		_set_spine_object_internal(_owner ? _owner->owner_as_node() : (Node *) nullptr, _object);
 	}
 
 	OBJECT *get_spine_object() {
 		return (OBJECT *) _get_spine_object_internal();
 	}
 
-	SpineSprite *get_spine_owner() {
-		return (SpineSprite *) _get_spine_owner_internal();
+	SpineSpriteOwner *get_spine_owner() {
+		return owner_iface;
 	}
 };
 

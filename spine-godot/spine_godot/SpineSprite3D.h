@@ -45,7 +45,7 @@
 
 class SpineSlotNode3D;
 
-class SpineSprite3D : public GeometryInstance3D, public spine::AnimationStateListenerObject {
+class SpineSprite3D : public GeometryInstance3D, public spine::AnimationStateListenerObject, public SpineSpriteOwner {
 	GDCLASS(SpineSprite3D, GeometryInstance3D)
 
 protected:
@@ -71,8 +71,14 @@ public:
 	~SpineSprite3D();
 
 	void set_skeleton_data_res(const Ref<SpineSkeletonDataResource> &res);
-	Ref<SpineSkeletonDataResource> get_skeleton_data_res();
-	Ref<SpineSkeleton> get_skeleton();
+	Ref<SpineSkeletonDataResource> get_skeleton_data_res() override;
+	Ref<SpineSkeleton> get_skeleton() override;
+	void set_modified_bones() override {
+		modified_bones = true;
+	}
+	Node *owner_as_node() override {
+		return this;
+	}
 	Ref<SpineAnimationState> get_animation_state();
 	void on_skeleton_data_changed();
 	void update_skeleton(float delta);

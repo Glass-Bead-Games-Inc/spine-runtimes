@@ -46,6 +46,12 @@ public:
 		_set_spine_object_internal(owner, object);
 	}
 
+	// SpineSpriteOwner* is not directly an Object* (multiple inheritance);
+	// adjust to Node* via owner_as_node() before storing.
+	void set_spine_object(SpineSpriteOwner *owner, spine::SliderPose *object) {
+		_set_spine_object_internal(owner ? owner->owner_as_node() : (Node *) nullptr, object);
+	}
+
 	spine::SliderPose *get_spine_object() {
 		return (spine::SliderPose *) _get_spine_object_internal();
 	}

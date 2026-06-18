@@ -29,7 +29,6 @@
 
 #include "SpineAnimationState.h"
 #include "SpineTrackEntry.h"
-#include "SpineSprite3D.h"
 
 void SpineAnimationState::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("update", "delta"), &SpineAnimationState::update, DEFVAL(0));
@@ -51,29 +50,19 @@ void SpineAnimationState::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("enable_queue"), &SpineAnimationState::enable_queue);
 }
 
-SpineAnimationState::SpineAnimationState() : animation_state(nullptr), sprite(nullptr), sprite3d(nullptr) {
+SpineAnimationState::SpineAnimationState() : animation_state(nullptr), sprite(nullptr) {
 }
 
 SpineAnimationState::~SpineAnimationState() {
 	delete animation_state;
 }
 
-void SpineAnimationState::set_spine_sprite(SpineSprite *_sprite) {
+void SpineAnimationState::set_spine_sprite(SpineSpriteOwner *_sprite) {
 	delete animation_state;
 	animation_state = nullptr;
 	sprite = _sprite;
-	sprite3d = nullptr;
 	if (!sprite || !sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
 	animation_state = new spine::AnimationState(*sprite->get_skeleton_data_res()->get_animation_state_data());
-}
-
-void SpineAnimationState::set_spine_sprite(SpineSprite3D *_sprite) {
-	delete animation_state;
-	animation_state = nullptr;
-	sprite = nullptr;
-	sprite3d = _sprite;
-	if (!sprite3d || !sprite3d->get_skeleton_data_res().is_valid() || !sprite3d->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
-	animation_state = new spine::AnimationState(*sprite3d->get_skeleton_data_res()->get_animation_state_data());
 }
 
 void SpineAnimationState::update(float delta) {
@@ -117,10 +106,7 @@ Ref<SpineTrackEntry> SpineAnimationState::set_animation(const String &animation_
 	}
 	auto track_entry = &animation_state->setAnimation(track, *animation, loop);
 	Ref<SpineTrackEntry> track_entry_ref(memnew(SpineTrackEntry));
-	if (sprite3d)
-		track_entry_ref->set_spine_object(sprite3d, track_entry);
-	else
-		track_entry_ref->set_spine_object(sprite, track_entry);
+	track_entry_ref->set_spine_object(sprite, track_entry);
 	return track_entry_ref;
 }
 
@@ -134,10 +120,7 @@ Ref<SpineTrackEntry> SpineAnimationState::add_animation(const String &animation_
 	}
 	auto track_entry = &animation_state->addAnimation(track, *animation, loop, delay);
 	Ref<SpineTrackEntry> track_entry_ref(memnew(SpineTrackEntry));
-	if (sprite3d)
-		track_entry_ref->set_spine_object(sprite3d, track_entry);
-	else
-		track_entry_ref->set_spine_object(sprite, track_entry);
+	track_entry_ref->set_spine_object(sprite, track_entry);
 	return track_entry_ref;
 }
 
@@ -145,20 +128,14 @@ Ref<SpineTrackEntry> SpineAnimationState::set_empty_animation(int track_id, floa
 	SPINE_CHECK(animation_state, nullptr)
 	auto track_entry = &animation_state->setEmptyAnimation(track_id, mix_duration);
 	Ref<SpineTrackEntry> track_entry_ref(memnew(SpineTrackEntry));
-	if (sprite3d)
-		track_entry_ref->set_spine_object(sprite3d, track_entry);
-	else
-		track_entry_ref->set_spine_object(sprite, track_entry);
+	track_entry_ref->set_spine_object(sprite, track_entry);
 	return track_entry_ref;
 }
 Ref<SpineTrackEntry> SpineAnimationState::add_empty_animation(int track_id, float mix_duration, float delay) {
 	SPINE_CHECK(animation_state, nullptr)
 	auto track_entry = &animation_state->addEmptyAnimation(track_id, mix_duration, delay);
 	Ref<SpineTrackEntry> track_entry_ref(memnew(SpineTrackEntry));
-	if (sprite3d)
-		track_entry_ref->set_spine_object(sprite3d, track_entry);
-	else
-		track_entry_ref->set_spine_object(sprite, track_entry);
+	track_entry_ref->set_spine_object(sprite, track_entry);
 	return track_entry_ref;
 }
 void SpineAnimationState::set_empty_animations(float mix_duration) {
@@ -171,10 +148,7 @@ Ref<SpineTrackEntry> SpineAnimationState::get_track(int track_index) {
 	auto track_entry = animation_state->getTrack(track_index);
 	if (!track_entry) return nullptr;
 	Ref<SpineTrackEntry> track_entry_ref(memnew(SpineTrackEntry));
-	if (sprite3d)
-		track_entry_ref->set_spine_object(sprite3d, track_entry);
-	else
-		track_entry_ref->set_spine_object(sprite, track_entry);
+	track_entry_ref->set_spine_object(sprite, track_entry);
 	return track_entry_ref;
 }
 

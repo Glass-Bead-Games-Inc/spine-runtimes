@@ -30,60 +30,28 @@
 #pragma once
 
 #include "SpineCommon.h"
-#include "SpineConstant.h"
-#include <spine/BoneLocal.h>
+#ifdef SPINE_GODOT_EXTENSION
+#include <godot_cpp/classes/node.hpp>
+#else
+#include "scene/main/node.h"
+#endif
 
-class SpineSprite;
+class SpineSkeleton;
 class SpineSkeletonDataResource;
 
-class SpineBoneLocal : public SpineObjectWrapper {
-	GDCLASS(SpineBoneLocal, SpineObjectWrapper)
-
-protected:
-	static void _bind_methods();
-
+// Non-GDCLASS abstract interface implemented by both SpineSprite (Node2D) and
+// SpineSprite3D (GeometryInstance3D) so the data layer (SpineSkeleton,
+// SpineAnimationState, all wrapper objects) can own either node uniformly.
+//
+// Multiple-inheritance note: implementers inherit both a Godot node base
+// (-> Object) and this interface. A SpineSpriteOwner* and the Object* are
+// DIFFERENT addresses. Never C-cast between them. owner_as_node() returns
+// `this` correctly adjusted to Node* via the virtual call.
+class SpineSpriteOwner {
 public:
-	// Can be used by both SpineSprite and SpineSkeletonDataResource
-	void set_spine_object(void *owner, spine::BoneLocal *object) {
-		_set_spine_object_internal(owner, object);
-	}
-
-	// SpineSpriteOwner* is not directly an Object* (multiple inheritance);
-	// adjust to Node* via owner_as_node() before storing.
-	void set_spine_object(SpineSpriteOwner *owner, spine::BoneLocal *object) {
-		_set_spine_object_internal(owner ? owner->owner_as_node() : (Node *) nullptr, object);
-	}
-
-	spine::BoneLocal *get_spine_object() {
-		return (spine::BoneLocal *) _get_spine_object_internal();
-	}
-
-	float get_x();
-	void set_x(float v);
-
-	float get_y();
-	void set_y(float v);
-
-	float get_rotation();
-	void set_rotation(float v);
-
-	float get_scale_x();
-	void set_scale_x(float v);
-
-	float get_scale_y();
-	void set_scale_y(float v);
-
-	float get_shear_x();
-	void set_shear_x(float v);
-
-	float get_shear_y();
-	void set_shear_y(float v);
-
-	SpineConstant::Inherit get_inherit();
-	void set_inherit(SpineConstant::Inherit inherit);
-
-	// Convenience methods
-	void set_position(float x, float y);
-	void set_scale(float scale_x, float scale_y);
-	void set_scale_uniform(float scale);
+	virtual ~SpineSpriteOwner() {}
+	virtual Ref<SpineSkeleton> get_skeleton() = 0;
+	virtual Ref<SpineSkeletonDataResource> get_skeleton_data_res() = 0;
+	virtual void set_modified_bones() = 0;
+	virtual Node *owner_as_node() = 0;// returns `this` adjusted to Node*; used for signal connect and 2D casts
 };

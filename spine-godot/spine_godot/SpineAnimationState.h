@@ -33,7 +33,6 @@
 #include "SpineSkeleton.h"
 
 class SpineTrackEntry;
-class SpineSprite3D;
 
 class SpineAnimationState : public REFCOUNTED {
 	GDCLASS(SpineAnimationState, REFCOUNTED)
@@ -43,8 +42,7 @@ protected:
 
 private:
 	spine::AnimationState *animation_state;
-	SpineSprite *sprite;
-	SpineSprite3D *sprite3d;
+	SpineSpriteOwner *sprite;
 
 public:
 	SpineAnimationState();
@@ -54,8 +52,7 @@ public:
 		return animation_state;
 	}
 
-	void set_spine_sprite(SpineSprite *sprite);
-	void set_spine_sprite(SpineSprite3D *sprite);
+	void set_spine_sprite(SpineSpriteOwner *sprite);
 
 	void update(float delta);
 
