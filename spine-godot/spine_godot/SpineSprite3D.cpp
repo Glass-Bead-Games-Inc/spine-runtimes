@@ -805,7 +805,7 @@ void SpineSprite3D::build_meshes() {
 // Task 11: build_debug_mesh — rebuild the PRIMITIVE_LINES debug overlay.
 //
 // Strategy: accumulate line-segment pairs in dbg_positions / dbg_colors, then
-// emit a single PRIMITIVE_LINES surface on debug_mesh.  Each vertex is:
+// emit a single PRIMITIVE_LINES surface appended to the primary mesh.  Each vertex is:
 //   Vector3(x * sx, y * sy, z_epsilon)
 // where sx/sy mirror the render-path flip convention and z_epsilon keeps the
 // lines in front of the attachment quads.
