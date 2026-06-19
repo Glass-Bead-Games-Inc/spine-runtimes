@@ -162,7 +162,7 @@ public:
 	Node *owner_as_node() override {
 		return this;
 	}
-	Ref<SpineAnimationState> get_animation_state();
+	Ref<SpineAnimationState> get_animation_state() override; // SpineSpriteOwner
 	void on_skeleton_data_changed();
 	void update_skeleton(float delta);
 
