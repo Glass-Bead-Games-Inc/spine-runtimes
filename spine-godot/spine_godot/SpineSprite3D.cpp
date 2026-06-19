@@ -56,6 +56,8 @@
 #include <spine/RegionAttachment.h>
 #include <spine/MeshAttachment.h>
 #include <spine/ClippingAttachment.h>
+#include <spine/BoundingBoxAttachment.h>
+#include <spine/PathAttachment.h>
 
 // ---------------------------------------------------------------------------
 // SpineSprite3DStatics — shader/material singleton for 3D spine rendering.
@@ -149,13 +151,46 @@ private:
 		return mat;
 	}
 
+	// Build shader source for the debug lines overlay.
+	// Unshaded, vertex_color_use_as_albedo, no depth test so lines always show through.
+	static String build_lines_shader_source() {
+		return String(
+			"shader_type spatial;\n"
+			"render_mode unshaded, cull_disabled, depth_test_disabled;\n"
+			"\n"
+			"void fragment() {\n"
+			"    ALBEDO = COLOR.rgb;\n"
+			"    ALPHA = COLOR.a;\n"
+			"}\n");
+	}
+
+	static Ref<ShaderMaterial> make_lines_material() {
+		Ref<Shader> shader;
+		shader.instantiate();
+		shader->set_code(build_lines_shader_source());
+
+		Ref<ShaderMaterial> mat;
+		mat.instantiate();
+		mat->set_shader(shader);
+		return mat;
+	}
+
 public:
 	// Cache key: blend * 4 + shaded * 2 + pma  (max index = 3*4+2+1 = 15)
 	Ref<ShaderMaterial> materials[16];
+	// Task 11: shared unshaded, depth-test-disabled lines material for debug overlay
+	Ref<ShaderMaterial> lines_material;
 	int sprite_count;
 
 	SpineSprite3DStatics() : sprite_count(0) {
 		// Variants are built lazily on first get_material() call.
+	}
+
+	Ref<ShaderMaterial> get_lines_material() {
+		if (!lines_material.is_valid()) {
+			lines_material = make_lines_material();
+		}
+		return lines_material;
 	}
 
 	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma) {
@@ -222,6 +257,38 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_global_bone_transform_3d", "bone_name"), &SpineSprite3D::get_global_bone_transform_3d);
 	ClassDB::bind_method(D_METHOD("set_global_bone_transform_3d", "bone_name", "xform"), &SpineSprite3D::set_global_bone_transform_3d);
 
+	// Task 11: debug overlay bindings
+	ClassDB::bind_method(D_METHOD("set_debug_root", "v"), &SpineSprite3D::set_debug_root);
+	ClassDB::bind_method(D_METHOD("get_debug_root"), &SpineSprite3D::get_debug_root);
+	ClassDB::bind_method(D_METHOD("set_debug_root_color", "v"), &SpineSprite3D::set_debug_root_color);
+	ClassDB::bind_method(D_METHOD("get_debug_root_color"), &SpineSprite3D::get_debug_root_color);
+	ClassDB::bind_method(D_METHOD("set_debug_bones", "v"), &SpineSprite3D::set_debug_bones);
+	ClassDB::bind_method(D_METHOD("get_debug_bones"), &SpineSprite3D::get_debug_bones);
+	ClassDB::bind_method(D_METHOD("set_debug_bones_color", "v"), &SpineSprite3D::set_debug_bones_color);
+	ClassDB::bind_method(D_METHOD("get_debug_bones_color"), &SpineSprite3D::get_debug_bones_color);
+	ClassDB::bind_method(D_METHOD("set_debug_bones_thickness", "v"), &SpineSprite3D::set_debug_bones_thickness);
+	ClassDB::bind_method(D_METHOD("get_debug_bones_thickness"), &SpineSprite3D::get_debug_bones_thickness);
+	ClassDB::bind_method(D_METHOD("set_debug_regions", "v"), &SpineSprite3D::set_debug_regions);
+	ClassDB::bind_method(D_METHOD("get_debug_regions"), &SpineSprite3D::get_debug_regions);
+	ClassDB::bind_method(D_METHOD("set_debug_regions_color", "v"), &SpineSprite3D::set_debug_regions_color);
+	ClassDB::bind_method(D_METHOD("get_debug_regions_color"), &SpineSprite3D::get_debug_regions_color);
+	ClassDB::bind_method(D_METHOD("set_debug_meshes", "v"), &SpineSprite3D::set_debug_meshes);
+	ClassDB::bind_method(D_METHOD("get_debug_meshes"), &SpineSprite3D::get_debug_meshes);
+	ClassDB::bind_method(D_METHOD("set_debug_meshes_color", "v"), &SpineSprite3D::set_debug_meshes_color);
+	ClassDB::bind_method(D_METHOD("get_debug_meshes_color"), &SpineSprite3D::get_debug_meshes_color);
+	ClassDB::bind_method(D_METHOD("set_debug_bounding_boxes", "v"), &SpineSprite3D::set_debug_bounding_boxes);
+	ClassDB::bind_method(D_METHOD("get_debug_bounding_boxes"), &SpineSprite3D::get_debug_bounding_boxes);
+	ClassDB::bind_method(D_METHOD("set_debug_bounding_boxes_color", "v"), &SpineSprite3D::set_debug_bounding_boxes_color);
+	ClassDB::bind_method(D_METHOD("get_debug_bounding_boxes_color"), &SpineSprite3D::get_debug_bounding_boxes_color);
+	ClassDB::bind_method(D_METHOD("set_debug_paths", "v"), &SpineSprite3D::set_debug_paths);
+	ClassDB::bind_method(D_METHOD("get_debug_paths"), &SpineSprite3D::get_debug_paths);
+	ClassDB::bind_method(D_METHOD("set_debug_paths_color", "v"), &SpineSprite3D::set_debug_paths_color);
+	ClassDB::bind_method(D_METHOD("get_debug_paths_color"), &SpineSprite3D::get_debug_paths_color);
+	ClassDB::bind_method(D_METHOD("set_debug_clipping", "v"), &SpineSprite3D::set_debug_clipping);
+	ClassDB::bind_method(D_METHOD("get_debug_clipping"), &SpineSprite3D::get_debug_clipping);
+	ClassDB::bind_method(D_METHOD("set_debug_clipping_color", "v"), &SpineSprite3D::set_debug_clipping_color);
+	ClassDB::bind_method(D_METHOD("get_debug_clipping_color"), &SpineSprite3D::get_debug_clipping_color);
+
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
 						  PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry")));
@@ -266,13 +333,37 @@ void SpineSprite3D::_bind_methods() {
 				 "get_multiply_material");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "screen_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_screen_material",
 				 "get_screen_material");
+	ADD_GROUP("Debug", "");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "root"), "set_debug_root", "get_debug_root");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "root_color"), "set_debug_root_color", "get_debug_root_color");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bones"), "set_debug_bones", "get_debug_bones");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "bones_color"), "set_debug_bones_color", "get_debug_bones_color");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "bones_thickness"), "set_debug_bones_thickness", "get_debug_bones_thickness");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "regions"), "set_debug_regions", "get_debug_regions");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "regions_color"), "set_debug_regions_color", "get_debug_regions_color");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "meshes"), "set_debug_meshes", "get_debug_meshes");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "meshes_color"), "set_debug_meshes_color", "get_debug_meshes_color");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "bounding_boxes"), "set_debug_bounding_boxes", "get_debug_bounding_boxes");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "bounding_boxes_color"), "set_debug_bounding_boxes_color", "get_debug_bounding_boxes_color");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "paths"), "set_debug_paths", "get_debug_paths");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "paths_color"), "set_debug_paths_color", "get_debug_paths_color");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "clipping"), "set_debug_clipping", "get_debug_clipping");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "paths_clipping"), "set_debug_clipping_color", "get_debug_clipping_color");
 	ADD_GROUP("Preview", "");
 }
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
 	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false),
-	  preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0) {
+	  preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
+	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
+	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)),
+	  debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)), debug_bones_thickness(5.0f),
+	  debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)),
+	  debug_meshes(false), debug_meshes_color(Color(0, 0, 1, 0.5f)),
+	  debug_bounding_boxes(false), debug_bounding_boxes_color(Color(0, 1, 0, 0.5f)),
+	  debug_paths(false), debug_paths_color(Color::hex(0xff7f0077)),
+	  debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -283,6 +374,14 @@ SpineSprite3D::~SpineSprite3D() {
 		RS::get_singleton()->free_rid(mesh);
 #else
 		RS::get_singleton()->free(mesh);
+#endif
+	}
+	// Task 11: free debug mesh RID
+	if (debug_mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->free_rid(debug_mesh);
+#else
+		RS::get_singleton()->free(debug_mesh);
 #endif
 	}
 }
@@ -380,6 +479,7 @@ void SpineSprite3D::update_skeleton(float delta) {
 	emit_signal(SNAME("world_transforms_changed"), this);
 	if (modified_bones) skeleton->update_world_transform(SpineConstant::Physics_Update);
 	build_meshes();
+	build_debug_mesh(); // Task 11: rebuild debug line overlay
 }
 
 void SpineSprite3D::build_meshes() {
@@ -657,6 +757,247 @@ void SpineSprite3D::build_meshes() {
 		RS::get_singleton()->mesh_set_custom_aabb(mesh, aabb);
 	}
 	set_base(mesh);
+}
+
+// ---------------------------------------------------------------------------
+// Task 11: build_debug_mesh — rebuild the PRIMITIVE_LINES debug overlay.
+//
+// Strategy: accumulate line-segment pairs in dbg_positions / dbg_colors, then
+// emit a single PRIMITIVE_LINES surface on debug_mesh.  Each vertex is:
+//   Vector3(x * sx, y * sy, z_epsilon)
+// where sx/sy mirror the render-path flip convention and z_epsilon keeps the
+// lines in front of the attachment quads.
+//
+// NOTE: debug_bones_thickness has no visual effect in 3D — PRIMITIVE_LINES are
+// always 1px regardless of thickness value.  The property is kept for API
+// parity with SpineSprite 2D.
+// ---------------------------------------------------------------------------
+void SpineSprite3D::build_debug_mesh() {
+	// The primary mesh is recreated from scratch by build_meshes() every frame.
+	// We append the debug lines as an additional PRIMITIVE_LINES surface on that same mesh.
+	// No separate RID management needed here — mesh cleanup is handled by build_meshes().
+
+	// Early-out when nothing is enabled or skeleton not ready.
+	bool any_enabled = debug_root || debug_bones || debug_regions || debug_meshes ||
+					   debug_bounding_boxes || debug_paths || debug_clipping;
+	if (!any_enabled) return;
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+
+	spine::Skeleton *sk = skeleton->get_spine_object();
+	auto &statics = SpineSprite3DStatics::instance();
+
+	// Coordinate conventions matching build_meshes():
+	float sx = flip_h ? -pixel_size : pixel_size;
+	float sy = flip_v ? pixel_size : -pixel_size;
+	// Small Z offset so debug lines sit in front of the attachment geometry.
+	const float z_eps = 0.001f;
+
+	// Line-segment scratch buffers.
+#ifdef SPINE_GODOT_EXTENSION
+	PackedVector3Array dbg_positions;
+	PackedColorArray  dbg_colors;
+#else
+	Vector<Vector3> dbg_positions;
+	Vector<Color>   dbg_colors;
+#endif
+
+	// Helper: emit one line segment between two 2D Spine world-space points.
+	auto emit_line = [&](float x0, float y0, float x1, float y1, const Color &col) {
+		dbg_positions.push_back(Vector3(x0 * sx, y0 * sy, z_eps));
+		dbg_colors.push_back(col);
+		dbg_positions.push_back(Vector3(x1 * sx, y1 * sy, z_eps));
+		dbg_colors.push_back(col);
+	};
+
+	// Helper: emit a closed polygon outline (last vertex connects back to first).
+	// verts: flat [x0,y0,x1,y1,...] with stride 2.
+	auto emit_polygon = [&](float *verts, int num_verts, const Color &col) {
+		if (num_verts < 2) return;
+		for (int i = 0; i < num_verts - 1; i++) {
+			emit_line(verts[i * 2], verts[i * 2 + 1],
+					  verts[(i + 1) * 2], verts[(i + 1) * 2 + 1], col);
+		}
+		// Close: last -> first
+		emit_line(verts[(num_verts - 1) * 2], verts[(num_verts - 1) * 2 + 1],
+				  verts[0], verts[1], col);
+	};
+
+	// Helper: emit triangle-mesh edges (non-deduplicated — sufficient for debug).
+	auto emit_mesh_triangles = [&](spine::Array<unsigned short> &triangles, float *verts, const Color &col) {
+		for (int i = 0; i < triangles.size(); i += 3) {
+			int i0 = triangles[i], i1 = triangles[i + 1], i2 = triangles[i + 2];
+			emit_line(verts[i0 * 2], verts[i0 * 2 + 1], verts[i1 * 2], verts[i1 * 2 + 1], col);
+			emit_line(verts[i1 * 2], verts[i1 * 2 + 1], verts[i2 * 2], verts[i2 * 2 + 1], col);
+			emit_line(verts[i2 * 2], verts[i2 * 2 + 1], verts[i0 * 2], verts[i0 * 2 + 1], col);
+		}
+	};
+
+	auto &draw_order = sk->getDrawOrder().getAppliedPose();
+
+	// --- Regions ---
+	if (debug_regions) {
+		for (int i = 0; i < (int) draw_order.size(); i++) {
+			spine::Slot *slot = draw_order[i];
+			if (!slot->getBone().isActive()) continue;
+			spine::Attachment *att = slot->getAppliedPose().getAttachment();
+			if (!att || !att->getRTTI().isExactly(spine::RegionAttachment::rtti)) continue;
+			auto region = (spine::RegionAttachment *) att;
+			auto &seq = region->getSequence();
+			int seq_idx = seq.resolveIndex(slot->getAppliedPose());
+			scratch_world_verts.setSize(8, 0);
+			region->computeWorldVertices(*slot, seq.getOffsets(seq_idx).buffer(), scratch_world_verts.buffer(), 0);
+			float *v = scratch_world_verts.buffer();
+			// Quad hull (4 corners)
+			emit_polygon(v, 4, debug_regions_color);
+			// Triangle edges (2 triangles of the quad: 0,1,2 and 2,3,0)
+			emit_line(v[0], v[1], v[4], v[5], debug_regions_color);
+			emit_line(v[4], v[5], v[2], v[3], debug_regions_color);
+		}
+	}
+
+	// --- Meshes ---
+	if (debug_meshes) {
+		for (int i = 0; i < (int) draw_order.size(); i++) {
+			spine::Slot *slot = draw_order[i];
+			if (!slot->getBone().isActive()) continue;
+			spine::Attachment *att = slot->getAppliedPose().getAttachment();
+			if (!att || !att->getRTTI().isExactly(spine::MeshAttachment::rtti)) continue;
+			auto mesh_att = (spine::MeshAttachment *) att;
+			auto &seq = mesh_att->getSequence();
+			int seq_idx = seq.resolveIndex(slot->getAppliedPose());
+			int len = mesh_att->getWorldVerticesLength();
+			scratch_world_verts.setSize(len, 0);
+			mesh_att->computeWorldVertices(*sk, *slot, 0, len, scratch_world_verts.buffer(), 0, 2);
+			float *v = scratch_world_verts.buffer();
+			// Triangle edges
+			emit_mesh_triangles(mesh_att->getTriangles(), v, debug_meshes_color);
+			// Hull outline
+			int hull_len = mesh_att->getHullLength();
+			if (hull_len >= 2) {
+				emit_polygon(v, hull_len, debug_meshes_color);
+			}
+		}
+	}
+
+	// --- Bounding boxes ---
+	if (debug_bounding_boxes) {
+		for (int i = 0; i < (int) draw_order.size(); i++) {
+			spine::Slot *slot = draw_order[i];
+			if (!slot->getBone().isActive()) continue;
+			spine::Attachment *att = slot->getAppliedPose().getAttachment();
+			if (!att || !att->getRTTI().isExactly(spine::BoundingBoxAttachment::rtti)) continue;
+			auto bbox = (spine::BoundingBoxAttachment *) att;
+			int len = bbox->getWorldVerticesLength();
+			scratch_world_verts.setSize(len, 0);
+			bbox->computeWorldVertices(*sk, *slot, 0, len, scratch_world_verts.buffer(), 0, 2);
+			int num_verts = len / 2;
+			emit_polygon(scratch_world_verts.buffer(), num_verts, debug_bounding_boxes_color);
+		}
+	}
+
+	// --- Paths ---
+	if (debug_paths) {
+		for (int i = 0; i < (int) draw_order.size(); i++) {
+			spine::Slot *slot = draw_order[i];
+			if (!slot->getBone().isActive()) continue;
+			spine::Attachment *att = slot->getAppliedPose().getAttachment();
+			if (!att || !att->getRTTI().isExactly(spine::PathAttachment::rtti)) continue;
+			auto path_att = (spine::PathAttachment *) att;
+			int len = path_att->getWorldVerticesLength();
+			scratch_world_verts.setSize(len, 0);
+			path_att->computeWorldVertices(*sk, *slot, 0, len, scratch_world_verts.buffer(), 0, 2);
+			int num_verts = len / 2;
+			if (num_verts >= 2) {
+				bool closed = path_att->getClosed();
+				for (int vi = 0; vi < num_verts - 1; vi++) {
+					emit_line(scratch_world_verts.buffer()[vi * 2], scratch_world_verts.buffer()[vi * 2 + 1],
+							  scratch_world_verts.buffer()[(vi + 1) * 2], scratch_world_verts.buffer()[(vi + 1) * 2 + 1],
+							  debug_paths_color);
+				}
+				if (closed) {
+					emit_line(scratch_world_verts.buffer()[(num_verts - 1) * 2], scratch_world_verts.buffer()[(num_verts - 1) * 2 + 1],
+							  scratch_world_verts.buffer()[0], scratch_world_verts.buffer()[1], debug_paths_color);
+				}
+			}
+		}
+	}
+
+	// --- Clipping ---
+	if (debug_clipping) {
+		for (int i = 0; i < (int) draw_order.size(); i++) {
+			spine::Slot *slot = draw_order[i];
+			if (!slot->getBone().isActive()) continue;
+			spine::Attachment *att = slot->getAppliedPose().getAttachment();
+			if (!att || !att->getRTTI().isExactly(spine::ClippingAttachment::rtti)) continue;
+			auto clip = (spine::ClippingAttachment *) att;
+			int len = clip->getWorldVerticesLength();
+			scratch_world_verts.setSize(len, 0);
+			clip->computeWorldVertices(*sk, *slot, 0, len, scratch_world_verts.buffer(), 0, 2);
+			int num_verts = len / 2;
+			emit_polygon(scratch_world_verts.buffer(), num_verts, debug_clipping_color);
+		}
+	}
+
+	// Helper: draw one bone as a line from world origin to tip along the bone's local X axis.
+	// Uses the bone's world matrix (a,b = X-axis direction) to avoid trig dependencies.
+	auto emit_bone = [&](spine::Bone *bone, const Color &col) {
+		if (!bone || !bone->isActive()) return;
+		float wx = bone->getAppliedPose().getWorldX();
+		float wy = bone->getAppliedPose().getWorldY();
+		float len = bone->getData().getLength();
+		if (len == 0) len = debug_bones_thickness * 2.0f;
+		// Bone local X axis in world space = (a, b) (column 0 of the 2x2 world matrix)
+		float a = bone->getAppliedPose().getA();
+		float b = bone->getAppliedPose().getB();
+		// Normalise so length-0 bones still show a marker
+		float mag = spine::MathUtil::sqrt(a * a + b * b);
+		if (mag > 0.0f) { a /= mag; b /= mag; }
+		float tip_x = wx + a * len;
+		float tip_y = wy + b * len;
+		emit_line(wx, wy, tip_x, tip_y, col);
+	};
+
+	// --- Root bone ---
+	if (debug_root) {
+		emit_bone(sk->getRootBone(), debug_root_color);
+	}
+
+	// --- Bones ---
+	if (debug_bones) {
+		auto &bones = sk->getBones();
+		for (int i = 0; i < (int) bones.size(); i++) {
+			emit_bone(bones[i], debug_bones_color);
+		}
+	}
+
+	// --- Build the PRIMITIVE_LINES mesh surface ---
+	if (dbg_positions.size() == 0) return;
+	if (!mesh.is_valid()) return;
+
+	// Add the debug lines as an additional surface on the primary mesh.
+	// build_meshes() already called set_base(mesh), so this surface is rendered by the
+	// same instance without needing a separate RS instance or scenario setup.
+	// build_meshes() frees and recreates mesh each frame, so the surface is cleaned up
+	// automatically.  debug_mesh RID is used only to track whether we emitted lines
+	// (it is freed above at the top of this function each frame — here we just record
+	// a dummy valid RID so the destructor knows to call free if we crash mid-frame;
+	// actual storage is inside mesh).
+	Array arrays;
+	arrays.resize(Mesh::ARRAY_MAX);
+	arrays[Mesh::ARRAY_VERTEX] = dbg_positions;
+	arrays[Mesh::ARRAY_COLOR]  = dbg_colors;
+
+	RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, arrays, Array(), Dictionary(),
+			RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+
+	// Assign the shared unshaded, depth-test-disabled lines material to this surface.
+	Ref<ShaderMaterial> lmat = statics.get_lines_material();
+	if (lmat.is_valid()) {
+		int surface_count = RS::get_singleton()->mesh_get_surface_count(mesh);
+		if (surface_count > 0) {
+			RS::get_singleton()->mesh_surface_set_material(mesh, surface_count - 1, lmat->get_rid());
+		}
+	}
 }
 
 void SpineSprite3D::callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) {

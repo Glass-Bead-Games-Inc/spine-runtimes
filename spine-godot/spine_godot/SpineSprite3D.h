@@ -97,6 +97,25 @@ protected:
 	bool preview_frame;
 	float preview_time;
 
+	// Task 11: debug overlay fields (same names/defaults as SpineSprite 2D)
+	bool debug_root;
+	Color debug_root_color;
+	bool debug_bones;
+	Color debug_bones_color;
+	float debug_bones_thickness; // NOTE: 3D PRIMITIVE_LINES are always 1px; thickness has no visual effect in 3D
+	bool debug_regions;
+	Color debug_regions_color;
+	bool debug_meshes;
+	Color debug_meshes_color;
+	bool debug_bounding_boxes;
+	Color debug_bounding_boxes_color;
+	bool debug_paths;
+	Color debug_paths_color;
+	bool debug_clipping;
+	Color debug_clipping_color;
+
+	RID debug_mesh; // owned RS mesh for the PRIMITIVE_LINES debug surface (Task 11)
+
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array scratch_positions;
@@ -128,6 +147,7 @@ protected:
 	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
 
 	void build_meshes();
+	void build_debug_mesh(); // Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
 
 public:
 	SpineSprite3D();
@@ -183,6 +203,38 @@ public:
 	Transform3D bone_to_transform3d(spine::Bone *bone, float slot_z) const;
 	Transform3D get_global_bone_transform_3d(const String &bone_name);
 	void set_global_bone_transform_3d(const String &bone_name, Transform3D xform);
+
+	// Task 11: debug overlay getters/setters (parity with SpineSprite 2D)
+	bool get_debug_root() { return debug_root; }
+	void set_debug_root(bool v) { debug_root = v; }
+	Color get_debug_root_color() { return debug_root_color; }
+	void set_debug_root_color(const Color &v) { debug_root_color = v; }
+	bool get_debug_bones() { return debug_bones; }
+	void set_debug_bones(bool v) { debug_bones = v; }
+	Color get_debug_bones_color() { return debug_bones_color; }
+	void set_debug_bones_color(const Color &v) { debug_bones_color = v; }
+	float get_debug_bones_thickness() { return debug_bones_thickness; }
+	void set_debug_bones_thickness(float v) { debug_bones_thickness = v; }
+	bool get_debug_regions() { return debug_regions; }
+	void set_debug_regions(bool v) { debug_regions = v; }
+	Color get_debug_regions_color() { return debug_regions_color; }
+	void set_debug_regions_color(const Color &v) { debug_regions_color = v; }
+	bool get_debug_meshes() { return debug_meshes; }
+	void set_debug_meshes(bool v) { debug_meshes = v; }
+	Color get_debug_meshes_color() { return debug_meshes_color; }
+	void set_debug_meshes_color(const Color &v) { debug_meshes_color = v; }
+	bool get_debug_bounding_boxes() { return debug_bounding_boxes; }
+	void set_debug_bounding_boxes(bool v) { debug_bounding_boxes = v; }
+	Color get_debug_bounding_boxes_color() { return debug_bounding_boxes_color; }
+	void set_debug_bounding_boxes_color(const Color &v) { debug_bounding_boxes_color = v; }
+	bool get_debug_paths() { return debug_paths; }
+	void set_debug_paths(bool v) { debug_paths = v; }
+	Color get_debug_paths_color() { return debug_paths_color; }
+	void set_debug_paths_color(const Color &v) { debug_paths_color = v; }
+	bool get_debug_clipping() { return debug_clipping; }
+	void set_debug_clipping(bool v) { debug_clipping = v; }
+	Color get_debug_clipping_color() { return debug_clipping_color; }
+	void set_debug_clipping_color(const Color &v) { debug_clipping_color = v; }
 
 	static void clear_statics();
 };
