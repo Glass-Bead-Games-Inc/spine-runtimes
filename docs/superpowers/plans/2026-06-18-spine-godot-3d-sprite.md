@@ -417,7 +417,9 @@ For PMA + additive/multiply the premultiplied color must not be re-divided; sinc
 
 - [ ] **Step 2: Batch break on blend mode + PMA + page**
 
-In `build_meshes()`, compute `spine::BlendMode blend = slot->getData().getBlendMode();` and read the page PMA flag from the atlas page (`((spine::AtlasRegion*)region)->getPage()->pma` — confirm the accessor name against `spine::AtlasPage`; it exposes `pma`). Flush the current surface whenever `ro`, `blend`, or `pma` changes. In `flush()`, select `statics.get_material(blend, false, pma)` instead of the hardcoded Normal.
+In `build_meshes()`, compute `spine::BlendMode blend = slot->getData().getBlendMode();` and read the page PMA flag from the atlas page (`((spine::AtlasRegion*)region)->getPage()->pma` — confirm the accessor name against `spine::AtlasPage`; it exposes `pma`). Flush the current surface whenever `ro`, `blend`, or `pma` changes.
+
+**Material handling — fix the Task 2 shared-material limitation (do NOT mutate a shared statics material).** In 3D the texture lives in the material, and a surface's material RID is assigned via `mesh_surface_set_material`, so a single shared `ShaderMaterial` whose `albedo_tex` is overwritten per flush is wrong for multi-page skeletons AND multi-instance scenes (the last write wins for everyone). Instead: `statics.get_material(blend, shaded, pma)` returns the shared **shader** variant only; the SPRITE keeps a per-instance cache `HashMap<key, Ref<ShaderMaterial>>` keyed by `(blend, shaded, pma, texture-rid)`. In `flush()`, look up/create the `ShaderMaterial` for the current `(variant, current_ro->texture)`, set its `albedo_tex` once on creation, and assign that material to the surface. This makes each surface's texture correct and independent of other surfaces and other `SpineSprite3D` instances. Clear/rebuild this cache when the skeleton data changes. Replace the Task 2 `flush()` that set `albedo_tex` on the shared statics material with this per-(variant,texture) cached-material lookup.
 
 - [ ] **Step 3: Build** — `.\dev-extension.ps1` (run from `spine-godot/build/`) — Expected: `scons: done building targets.`
 
