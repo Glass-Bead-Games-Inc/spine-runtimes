@@ -53,6 +53,13 @@ class SpineSlotNode3D;
 class SpineSprite3D : public GeometryInstance3D, public spine::AnimationStateListenerObject, public SpineSpriteOwner {
 	GDCLASS(SpineSprite3D, GeometryInstance3D)
 
+public:
+	enum BillboardMode {
+		BILLBOARD_DISABLED = 0,
+		BILLBOARD_ENABLED = 1,
+		BILLBOARD_Y = 2,
+	};
+
 protected:
 	Ref<SpineSkeletonDataResource> skeleton_data_res;
 	Ref<SpineSkeleton> skeleton;
@@ -71,6 +78,9 @@ protected:
 	// Task 3: flip controls
 	bool flip_h;
 	bool flip_v;
+
+	// Task 5: billboard mode
+	BillboardMode billboard;
 
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
@@ -131,5 +141,11 @@ public:
 	void set_flip_v(bool v);
 	bool get_flip_v();
 
+	// Task 5: billboard mode
+	void set_billboard(BillboardMode v);
+	BillboardMode get_billboard();
+
 	static void clear_statics();
 };
+
+VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)

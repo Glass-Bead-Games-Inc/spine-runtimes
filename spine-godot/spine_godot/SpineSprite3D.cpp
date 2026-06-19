@@ -88,9 +88,22 @@ private:
 			   "render_mode " + rm + ", cull_disabled, " + shading + "depth_draw_opaque, shadows_disabled;\n"
 			   "\n"
 			   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+			   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
 			   "\n"
 			   "void vertex() {\n"
-			   "    // billboard inserted in Task 5; identity for now\n"
+			   "    if (billboard_mode == 1) {\n"
+			   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			   "            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+			   "            MODEL_MATRIX[3]);\n"
+			   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			   "    } else if (billboard_mode == 2) {\n"
+			   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			   "            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+			   "            vec4(0.0,1.0,0.0,0.0),\n"
+			   "            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+			   "            MODEL_MATRIX[3]);\n"
+			   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			   "    }\n"
 			   "}\n"
 			   "\n"
 			   "void fragment() {\n"
@@ -164,6 +177,11 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_flip_h"), &SpineSprite3D::get_flip_h);
 	ClassDB::bind_method(D_METHOD("set_flip_v", "v"), &SpineSprite3D::set_flip_v);
 	ClassDB::bind_method(D_METHOD("get_flip_v"), &SpineSprite3D::get_flip_v);
+	ClassDB::bind_method(D_METHOD("set_billboard", "v"), &SpineSprite3D::set_billboard);
+	ClassDB::bind_method(D_METHOD("get_billboard"), &SpineSprite3D::get_billboard);
+	BIND_ENUM_CONSTANT(BILLBOARD_DISABLED);
+	BIND_ENUM_CONSTANT(BILLBOARD_ENABLED);
+	BIND_ENUM_CONSTANT(BILLBOARD_Y);
 
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
@@ -198,11 +216,12 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "z_spacing", PROPERTY_HINT_RANGE, "0,1,0.0001"), "set_z_spacing", "get_z_spacing");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "get_flip_h");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabled,Enabled,Y-Billboard"), "set_billboard", "get_billboard");
 }
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false) {
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -376,6 +395,7 @@ void SpineSprite3D::build_meshes() {
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
 				mat->set_shader_parameter("albedo_tex", current_ro->texture);
+				mat->set_shader_parameter("billboard_mode", (int) billboard);
 				material_cache[cache_key] = mat;
 			}
 			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, mat->get_rid());
@@ -512,6 +532,12 @@ void SpineSprite3D::build_meshes() {
 	flush(); // flush final surface
 
 	if (aabb_init) {
+		// Task 5: expand to cube when billboarding so rotation never causes frustum culling
+		if (billboard != BILLBOARD_DISABLED) {
+			float r = MAX(aabb.size.x, MAX(aabb.size.y, aabb.size.z));
+			Vector3 c = aabb.position + aabb.size * 0.5f;
+			aabb = AABB(c - Vector3(r, r, r), Vector3(2 * r, 2 * r, 2 * r));
+		}
 		RS::get_singleton()->mesh_set_custom_aabb(mesh, aabb);
 	}
 	set_base(mesh);
@@ -601,6 +627,19 @@ void SpineSprite3D::set_flip_v(bool v) {
 
 bool SpineSprite3D::get_flip_v() {
 	return flip_v;
+}
+
+void SpineSprite3D::set_billboard(BillboardMode v) {
+	billboard = v;
+	// Update billboard_mode on all already-cached per-instance material clones.
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
+	}
+	if (skeleton.is_valid()) build_meshes();
+}
+
+SpineSprite3D::BillboardMode SpineSprite3D::get_billboard() {
+	return billboard;
 }
 
 void SpineSprite3D::clear_statics() {
