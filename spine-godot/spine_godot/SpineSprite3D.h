@@ -82,6 +82,9 @@ protected:
 	// Task 5: billboard mode
 	BillboardMode billboard;
 
+	// Task 6: shaded mode
+	bool shaded;
+
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array scratch_positions;
@@ -144,6 +147,10 @@ public:
 	// Task 5: billboard mode
 	void set_billboard(BillboardMode v);
 	BillboardMode get_billboard();
+
+	// Task 6: shaded mode
+	void set_shaded(bool v);
+	bool get_shaded();
 
 	static void clear_statics();
 };

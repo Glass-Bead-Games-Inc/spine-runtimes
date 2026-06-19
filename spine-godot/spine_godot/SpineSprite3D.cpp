@@ -64,8 +64,7 @@ private:
 	static SpineSprite3DStatics *_instance;
 
 	// Build GLSL source for the requested variant.
-	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} unshaded variants.
-	// Shaded variants (shaded == true) are stubbed for Task 6.
+	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} x {unshaded, shaded} variants.
 	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma) {
 		// Blend mode -> render_mode token
 		String rm;
@@ -75,42 +74,66 @@ private:
 			default: rm = "blend_mix"; break; // Normal (Screen unsupported -> treat as normal)
 		}
 
-		// Shading mode token (Task 6 will remove "unshaded" for shaded variants)
-		String shading = shaded ? "" : "unshaded, ";
+		// Vertex shader (same for shaded and unshaded)
+		String vertex_fn =
+			"void vertex() {\n"
+			"    if (billboard_mode == 1) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    } else if (billboard_mode == 2) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+			"            vec4(0.0,1.0,0.0,0.0),\n"
+			"            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    }\n"
+			"}\n";
 
-		// Fragment: both straight and PMA use same formula; render_mode drives blending
-		// PMA atlases already store rgb*a so we output as-is; blend_add/mul + PMA is correct per 2D behavior
-		String frag = pma
-				? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
-				: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
+		if (!shaded) {
+			// Unshaded variant: flat rendering, no lighting, no shadow participation.
+			String frag = pma
+					? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
+					: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-		return String("shader_type spatial;\n") +
-			   "render_mode " + rm + ", cull_disabled, " + shading + "depth_draw_opaque, shadows_disabled;\n"
-			   "\n"
-			   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
-			   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-			   "\n"
-			   "void vertex() {\n"
-			   "    if (billboard_mode == 1) {\n"
-			   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			   "            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
-			   "            MODEL_MATRIX[3]);\n"
-			   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			   "    } else if (billboard_mode == 2) {\n"
-			   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			   "            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
-			   "            vec4(0.0,1.0,0.0,0.0),\n"
-			   "            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
-			   "            MODEL_MATRIX[3]);\n"
-			   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			   "    }\n"
-			   "}\n"
-			   "\n"
-			   "void fragment() {\n"
-			   "    " +
-			   frag +
-			   "\n"
-			   "}\n";
+			return String("shader_type spatial;\n") +
+				   "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
+				   "\n"
+				   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+				   "\n" +
+				   vertex_fn +
+				   "\n"
+				   "void fragment() {\n"
+				   "    " + frag + "\n"
+				   "}\n";
+		} else {
+			// Shaded variant: participates in lighting and shadows.
+			// PMA handling same as unshaded; normal/specular maps are optional.
+			String albedo_alpha = pma
+					? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
+					: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
+
+			return String("shader_type spatial;\n") +
+				   "render_mode " + rm + ", cull_disabled, depth_draw_opaque;\n"
+				   "\n"
+				   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				   "uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap;\n"
+				   "uniform sampler2D specular_tex : source_color, filter_linear_mipmap;\n"
+				   "uniform bool use_normal_tex = false;\n"
+				   "uniform bool use_specular_tex = false;\n"
+				   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+				   "\n" +
+				   vertex_fn +
+				   "\n"
+				   "void fragment() {\n"
+				   "    " + albedo_alpha + "\n"
+				   "    if (use_normal_tex) NORMAL_MAP = texture(normal_tex, UV).rgb;\n"
+				   "    if (use_specular_tex) SPECULAR = texture(specular_tex, UV).r;\n"
+				   "}\n";
+		}
 	}
 
 	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma) {
@@ -182,6 +205,8 @@ void SpineSprite3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(BILLBOARD_DISABLED);
 	BIND_ENUM_CONSTANT(BILLBOARD_ENABLED);
 	BIND_ENUM_CONSTANT(BILLBOARD_Y);
+	ClassDB::bind_method(D_METHOD("set_shaded", "v"), &SpineSprite3D::set_shaded);
+	ClassDB::bind_method(D_METHOD("get_shaded"), &SpineSprite3D::get_shaded);
 
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
@@ -217,11 +242,12 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "get_flip_h");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabled,Enabled,Y-Billboard"), "set_billboard", "get_billboard");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shaded"), "set_shaded", "get_shaded");
 }
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED) {
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -382,7 +408,7 @@ void SpineSprite3D::build_meshes() {
 
 		if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
-			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + 0 * 2 + (current_pma ? 1 : 0));
+			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
 			uint64_t tex_id = (uint64_t)current_ro->texture->get_rid().get_id();
 			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
 
@@ -391,11 +417,19 @@ void SpineSprite3D::build_meshes() {
 				mat = material_cache[cache_key];
 			} else {
 				// Clone the shared shader variant into a fresh per-(variant,texture) material
-				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, false, current_pma);
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma);
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
 				mat->set_shader_parameter("albedo_tex", current_ro->texture);
 				mat->set_shader_parameter("billboard_mode", (int) billboard);
+				if (shaded) {
+					bool has_normal = current_ro->normal_map.is_valid();
+					bool has_specular = current_ro->specular_map.is_valid();
+					if (has_normal) mat->set_shader_parameter("normal_tex", current_ro->normal_map);
+					mat->set_shader_parameter("use_normal_tex", has_normal);
+					if (has_specular) mat->set_shader_parameter("specular_tex", current_ro->specular_map);
+					mat->set_shader_parameter("use_specular_tex", has_specular);
+				}
 				material_cache[cache_key] = mat;
 			}
 			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, mat->get_rid());
@@ -640,6 +674,18 @@ void SpineSprite3D::set_billboard(BillboardMode v) {
 
 SpineSprite3D::BillboardMode SpineSprite3D::get_billboard() {
 	return billboard;
+}
+
+void SpineSprite3D::set_shaded(bool v) {
+	shaded = v;
+	// Switching shaded mode invalidates the per-instance material cache since the
+	// cache key encodes the shaded bit — clear so flush() picks the correct variants.
+	material_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+bool SpineSprite3D::get_shaded() {
+	return shaded;
 }
 
 void SpineSprite3D::clear_statics() {
