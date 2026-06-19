@@ -44,7 +44,7 @@
 #include <godot_cpp/variant/variant.hpp>
 #else
 #include "scene/resources/shader.h"
-#include "scene/resources/shader_material.h"
+#include "scene/resources/material.h" // declares ShaderMaterial (no separate shader_material.h in 4.x)
 #include "scene/resources/mesh.h"
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"

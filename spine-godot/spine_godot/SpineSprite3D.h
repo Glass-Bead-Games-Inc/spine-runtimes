@@ -43,7 +43,7 @@
 #else
 #include "scene/3d/visual_instance_3d.h" // declares GeometryInstance3D
 #include "core/templates/hash_map.h"
-#include "scene/resources/shader_material.h"
+#include "scene/resources/material.h" // declares Material + ShaderMaterial (no separate shader_material.h in 4.x)
 #endif
 
 #include <spine/SkeletonClipping.h>
