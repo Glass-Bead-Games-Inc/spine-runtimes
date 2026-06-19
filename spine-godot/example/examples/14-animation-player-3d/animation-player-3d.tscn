@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://anim_player_3d_ex"]
+
+[ext_resource type="Script" path="res://examples/14-animation-player-3d/animation-player-3d.gd" id="1_script"]
+[ext_resource type="SpineSkeletonDataResource" path="res://assets/spineboy/spineboy-data-res.tres" id="2_data"]
+
+[node name="AnimationPlayer3DExample" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 18)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8096981, 0.50449103, -0.29979634, 0.046573944, 0.45400625, 0.88978046, 0.5849957, -0.7344162, 0.34411186, 11.479919, 5, 7.9193707)
+
+[node name="Spineboy" type="SpineSprite3D" parent="."]
+skeleton_data_res = ExtResource("2_data")
+
+[node name="AnimationTrack" type="SpineAnimationTrack" parent="Spineboy"]
+track_index = 0
