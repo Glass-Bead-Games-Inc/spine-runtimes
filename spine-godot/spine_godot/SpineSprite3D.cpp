@@ -64,24 +64,40 @@ private:
 	static SpineSprite3DStatics *_instance;
 
 	// Build GLSL source for the requested variant.
-	// Task 2 only fills {Normal, unshaded=true, pma=false}.
-	static String build_shader_source(spine::BlendMode /*blend*/, bool /*shaded*/, bool /*pma*/) {
-		// Only one variant this task; extend in later tasks.
-		return String(
-				"shader_type spatial;\n"
-				"render_mode blend_mix, cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
-				"\n"
-				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
-				"\n"
-				"void vertex() {\n"
-				"    // billboard inserted in Task 5; identity for now\n"
-				"}\n"
-				"\n"
-				"void fragment() {\n"
-				"    vec4 tex = texture(albedo_tex, UV);\n"
-				"    ALBEDO = tex.rgb * COLOR.rgb;\n"
-				"    ALPHA = tex.a * COLOR.a;\n"
-				"}\n");
+	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} unshaded variants.
+	// Shaded variants (shaded == true) are stubbed for Task 6.
+	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma) {
+		// Blend mode -> render_mode token
+		String rm;
+		switch (blend) {
+			case spine::BlendMode_Additive: rm = "blend_add"; break;
+			case spine::BlendMode_Multiply: rm = "blend_mul"; break;
+			default: rm = "blend_mix"; break; // Normal (Screen unsupported -> treat as normal)
+		}
+
+		// Shading mode token (Task 6 will remove "unshaded" for shaded variants)
+		String shading = shaded ? "" : "unshaded, ";
+
+		// Fragment: both straight and PMA use same formula; render_mode drives blending
+		// PMA atlases already store rgb*a so we output as-is; blend_add/mul + PMA is correct per 2D behavior
+		String frag = pma
+				? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
+				: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
+
+		return String("shader_type spatial;\n") +
+			   "render_mode " + rm + ", cull_disabled, " + shading + "depth_draw_opaque, shadows_disabled;\n"
+			   "\n"
+			   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+			   "\n"
+			   "void vertex() {\n"
+			   "    // billboard inserted in Task 5; identity for now\n"
+			   "}\n"
+			   "\n"
+			   "void fragment() {\n"
+			   "    " +
+			   frag +
+			   "\n"
+			   "}\n";
 	}
 
 	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma) {
@@ -101,9 +117,7 @@ public:
 	int sprite_count;
 
 	SpineSprite3DStatics() : sprite_count(0) {
-		// Pre-build the one variant we need for Task 2.
-		int key = (int) spine::BlendMode_Normal * 4 + 0 * 2 + 0; // blend_normal, unshaded, straight
-		materials[key] = make_material(spine::BlendMode_Normal, false, false);
+		// Variants are built lazily on first get_material() call.
 	}
 
 	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma) {
@@ -215,6 +229,8 @@ Ref<SpineSkeletonDataResource> SpineSprite3D::get_skeleton_data_res() {
 void SpineSprite3D::on_skeleton_data_changed() {
 	skeleton.unref();
 	animation_state.unref();
+	// Task 4: clear per-instance material cache; textures change with skeleton data
+	material_cache.clear();
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
 
 	if (skeleton_data_res.is_valid()) {
@@ -297,7 +313,7 @@ void SpineSprite3D::update_skeleton(float delta) {
 }
 
 void SpineSprite3D::build_meshes() {
-	// Full rebuild every frame (simple approach for Task 2).
+	// Full rebuild every frame (simple approach from Task 2).
 	if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
 		RS::get_singleton()->free_rid(mesh);
@@ -317,6 +333,9 @@ void SpineSprite3D::build_meshes() {
 	int surface_index = 0;
 
 	SpineRendererObject *current_ro = nullptr;
+	// Task 4: track current blend + pma for batch breaking
+	spine::BlendMode current_blend = spine::BlendMode_Normal;
+	bool current_pma = false;
 
 	// Reset scratch buffers.
 	scratch_positions.clear();
@@ -324,8 +343,11 @@ void SpineSprite3D::build_meshes() {
 	scratch_colors.clear();
 	scratch_indices.clear();
 
-	// Flush the accumulated scratch buffers as one surface.
-	// Captures current_ro and surface_index by reference.
+	// Task 4: Flush the accumulated scratch buffers as one surface.
+	// Per-instance material cache: look up or create a ShaderMaterial for (variant, texture).
+	// Key: high byte = blend*4 + shaded*2 + pma; lower 56 bits = texture RID id.
+	// This ensures each surface gets its own correctly-textured material independent of other
+	// SpineSprite3D instances — fixing the Task 2 shared-material / last-write-wins bug.
 	auto flush = [&]() {
 		if (scratch_indices.size() == 0) return;
 
@@ -340,8 +362,22 @@ void SpineSprite3D::build_meshes() {
 				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		if (current_ro && current_ro->texture.is_valid()) {
-			Ref<ShaderMaterial> mat = statics.get_material(spine::BlendMode_Normal, false, false);
-			mat->set_shader_parameter("albedo_tex", current_ro->texture);
+			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
+			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + 0 * 2 + (current_pma ? 1 : 0));
+			uint64_t tex_id = (uint64_t)current_ro->texture->get_rid().get_id();
+			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
+
+			Ref<ShaderMaterial> mat;
+			if (material_cache.has(cache_key)) {
+				mat = material_cache[cache_key];
+			} else {
+				// Clone the shared shader variant into a fresh per-(variant,texture) material
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, false, current_pma);
+				mat.instantiate();
+				mat->set_shader(variant_mat->get_shader());
+				mat->set_shader_parameter("albedo_tex", current_ro->texture);
+				material_cache[cache_key] = mat;
+			}
 			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, mat->get_rid());
 		}
 		surface_index++;
@@ -367,10 +403,14 @@ void SpineSprite3D::build_meshes() {
 		spine::Color tint(sk_color.r * slot_color.r, sk_color.g * slot_color.g,
 				sk_color.b * slot_color.b, sk_color.a * slot_color.a);
 
+		// Task 4: get blend mode from slot data
+		spine::BlendMode slot_blend = slot->getData().getBlendMode();
+
 		SpineRendererObject *ro = nullptr;
 		spine::Array<float> *world_verts = &scratch_world_verts;
 		spine::Array<float> *uvs = nullptr;
 		spine::Array<unsigned short> *indices = nullptr;
+		spine::AtlasPage *atlas_page = nullptr;
 
 		if (attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
 			auto region = (spine::RegionAttachment *) attachment;
@@ -379,7 +419,9 @@ void SpineSprite3D::build_meshes() {
 
 			world_verts->setSize(8, 0);
 			region->computeWorldVertices(*slot, sequence.getOffsets(seq_index).buffer(), world_verts->buffer(), 0);
-			ro = (SpineRendererObject *) ((spine::AtlasRegion *) sequence.getRegion(seq_index))->getPage()->texture;
+			auto *atlas_region = (spine::AtlasRegion *) sequence.getRegion(seq_index);
+			atlas_page = atlas_region->getPage();
+			ro = (SpineRendererObject *) atlas_page->texture;
 			uvs = &sequence.getUVs(seq_index);
 
 			// Build quad indices for region attachments.
@@ -403,7 +445,9 @@ void SpineSprite3D::build_meshes() {
 
 			world_verts->setSize(mesh_att->getWorldVerticesLength(), 0);
 			mesh_att->computeWorldVertices(*sk, *slot, 0, mesh_att->getWorldVerticesLength(), world_verts->buffer(), 0, 2);
-			ro = (SpineRendererObject *) ((spine::AtlasRegion *) sequence.getRegion(seq_index))->getPage()->texture;
+			auto *atlas_region = (spine::AtlasRegion *) sequence.getRegion(seq_index);
+			atlas_page = atlas_region->getPage();
+			ro = (SpineRendererObject *) atlas_page->texture;
 			uvs = &sequence.getUVs(seq_index);
 			indices = &mesh_att->getTriangles();
 
@@ -422,11 +466,16 @@ void SpineSprite3D::build_meshes() {
 			continue;
 		}
 
-		// Flush if we switch texture page.
-		if (current_ro && ro != current_ro) {
+		// Task 4: read PMA from atlas page
+		bool slot_pma = atlas_page ? atlas_page->pma : false;
+
+		// Task 4: Flush if we switch texture page, blend mode, or PMA flag
+		if (current_ro && (ro != current_ro || slot_blend != current_blend || slot_pma != current_pma)) {
 			flush();
 		}
 		current_ro = ro;
+		current_blend = slot_blend;
+		current_pma = slot_pma;
 
 		int base = (int) scratch_positions.size();
 		int num_verts = (int) world_verts->size() / 2;

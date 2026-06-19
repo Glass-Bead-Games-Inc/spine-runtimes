@@ -37,9 +37,13 @@
 #include "SpineCommon.h"
 #include <godot_cpp/classes/geometry_instance3d.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/templates/vector.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
 #else
 #include "scene/3d/visual_instance_3d.h" // declares GeometryInstance3D
+#include "core/templates/hash_map.h"
+#include "scene/resources/shader_material.h"
 #endif
 
 #include <spine/SkeletonClipping.h>
@@ -83,6 +87,10 @@ protected:
 
 	// Task 2: scratch float buffer for computeWorldVertices
 	spine::Array<float> scratch_world_verts;
+
+	// Task 4: per-instance material cache keyed by (blend<<3 | shaded<<2 | pma<<1 | 0) in high byte + texture RID id.
+	// Encoding: key = ((uint64_t)(blend * 4 + shaded * 2 + pma) << 56) | texture_rid_id
+	HashMap<uint64_t, Ref<ShaderMaterial>> material_cache;
 
 	static void _bind_methods();
 	void _notification(int what);
