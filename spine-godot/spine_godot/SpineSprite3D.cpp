@@ -54,6 +54,7 @@
 
 #include <spine/RegionAttachment.h>
 #include <spine/MeshAttachment.h>
+#include <spine/ClippingAttachment.h>
 
 // ---------------------------------------------------------------------------
 // SpineSprite3DStatics — shader/material singleton for 3D spine rendering.
@@ -510,6 +511,10 @@ void SpineSprite3D::build_meshes() {
 			tint.g *= att_color.g;
 			tint.b *= att_color.b;
 			tint.a *= att_color.a;
+		} else if (attachment->getRTTI().isExactly(spine::ClippingAttachment::rtti)) {
+			auto clip = (spine::ClippingAttachment *) attachment;
+			skeleton_clipper->clipStart(*sk, *slot, clip);
+			continue;
 		} else {
 			skeleton_clipper->clipEnd(*slot);
 			continue;
@@ -518,6 +523,17 @@ void SpineSprite3D::build_meshes() {
 		if (!ro || !uvs || !indices || indices->size() == 0) {
 			skeleton_clipper->clipEnd(*slot);
 			continue;
+		}
+
+		if (skeleton_clipper->isClipping()) {
+			skeleton_clipper->clipTriangles(*world_verts, *indices, *uvs, 2);
+			if (skeleton_clipper->getClippedTriangles().size() == 0) {
+				skeleton_clipper->clipEnd(*slot);
+				continue;
+			}
+			world_verts = &skeleton_clipper->getClippedVertices();
+			uvs = &skeleton_clipper->getClippedUVs();
+			indices = &skeleton_clipper->getClippedTriangles();
 		}
 
 		// Task 4: read PMA from atlas page
