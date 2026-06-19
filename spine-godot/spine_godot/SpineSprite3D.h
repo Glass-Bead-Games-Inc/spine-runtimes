@@ -85,6 +85,12 @@ protected:
 	// Task 6: shaded mode
 	bool shaded;
 
+	// Task 8: per-blend-mode custom material overrides
+	Ref<Material> normal_material;
+	Ref<Material> additive_material;
+	Ref<Material> multiply_material;
+	Ref<Material> screen_material;
+
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array scratch_positions;
@@ -151,6 +157,16 @@ public:
 	// Task 6: shaded mode
 	void set_shaded(bool v);
 	bool get_shaded();
+
+	// Task 8: per-blend-mode custom material overrides
+	void set_normal_material(Ref<Material> v);
+	Ref<Material> get_normal_material();
+	void set_additive_material(Ref<Material> v);
+	Ref<Material> get_additive_material();
+	void set_multiply_material(Ref<Material> v);
+	Ref<Material> get_multiply_material();
+	void set_screen_material(Ref<Material> v);
+	Ref<Material> get_screen_material();
 
 	static void clear_statics();
 };

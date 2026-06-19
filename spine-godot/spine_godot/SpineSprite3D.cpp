@@ -209,6 +209,15 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_shaded", "v"), &SpineSprite3D::set_shaded);
 	ClassDB::bind_method(D_METHOD("get_shaded"), &SpineSprite3D::get_shaded);
 
+	ClassDB::bind_method(D_METHOD("set_normal_material", "material"), &SpineSprite3D::set_normal_material);
+	ClassDB::bind_method(D_METHOD("get_normal_material"), &SpineSprite3D::get_normal_material);
+	ClassDB::bind_method(D_METHOD("set_additive_material", "material"), &SpineSprite3D::set_additive_material);
+	ClassDB::bind_method(D_METHOD("get_additive_material"), &SpineSprite3D::get_additive_material);
+	ClassDB::bind_method(D_METHOD("set_multiply_material", "material"), &SpineSprite3D::set_multiply_material);
+	ClassDB::bind_method(D_METHOD("get_multiply_material"), &SpineSprite3D::get_multiply_material);
+	ClassDB::bind_method(D_METHOD("set_screen_material", "material"), &SpineSprite3D::set_screen_material);
+	ClassDB::bind_method(D_METHOD("get_screen_material"), &SpineSprite3D::get_screen_material);
+
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
 						  PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry")));
@@ -244,6 +253,15 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabled,Enabled,Y-Billboard"), "set_billboard", "get_billboard");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shaded"), "set_shaded", "get_shaded");
+	ADD_GROUP("Materials", "");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "normal_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_normal_material",
+				 "get_normal_material");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "additive_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_additive_material",
+				 "get_additive_material");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "multiply_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_multiply_material",
+				 "get_multiply_material");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "screen_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_screen_material",
+				 "get_screen_material");
 }
 
 SpineSprite3D::SpineSprite3D()
@@ -407,7 +425,19 @@ void SpineSprite3D::build_meshes() {
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
 				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
-		if (current_ro && current_ro->texture.is_valid()) {
+		// Task 8: check for a per-blend-mode custom material override first.
+		Ref<Material> custom_mat;
+		switch (current_blend) {
+			case spine::BlendMode_Normal:   custom_mat = normal_material; break;
+			case spine::BlendMode_Additive: custom_mat = additive_material; break;
+			case spine::BlendMode_Multiply: custom_mat = multiply_material; break;
+			default: custom_mat = screen_material; break; // Screen (rare/none in practice)
+		}
+
+		if (custom_mat.is_valid()) {
+			// User-owned material: use as-is; do NOT set albedo_tex or maps on it.
+			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, custom_mat->get_rid());
+		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
 			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
 			uint64_t tex_id = (uint64_t)current_ro->texture->get_rid().get_id();
@@ -702,6 +732,42 @@ void SpineSprite3D::set_shaded(bool v) {
 
 bool SpineSprite3D::get_shaded() {
 	return shaded;
+}
+
+void SpineSprite3D::set_normal_material(Ref<Material> v) {
+	normal_material = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+Ref<Material> SpineSprite3D::get_normal_material() {
+	return normal_material;
+}
+
+void SpineSprite3D::set_additive_material(Ref<Material> v) {
+	additive_material = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+Ref<Material> SpineSprite3D::get_additive_material() {
+	return additive_material;
+}
+
+void SpineSprite3D::set_multiply_material(Ref<Material> v) {
+	multiply_material = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+Ref<Material> SpineSprite3D::get_multiply_material() {
+	return multiply_material;
+}
+
+void SpineSprite3D::set_screen_material(Ref<Material> v) {
+	screen_material = v;
+	if (skeleton.is_valid()) build_meshes();
+}
+
+Ref<Material> SpineSprite3D::get_screen_material() {
+	return screen_material;
 }
 
 void SpineSprite3D::clear_statics() {
