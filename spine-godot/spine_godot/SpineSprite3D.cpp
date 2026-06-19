@@ -28,6 +28,7 @@
  *****************************************************************************/
 
 #include "SpineSprite3D.h"
+#include "SpineSlotNode3D.h"
 #include "SpineEvent.h"
 #include "SpineTrackEntry.h"
 #include "SpineSkeleton.h"
@@ -218,6 +219,9 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_screen_material", "material"), &SpineSprite3D::set_screen_material);
 	ClassDB::bind_method(D_METHOD("get_screen_material"), &SpineSprite3D::get_screen_material);
 
+	ClassDB::bind_method(D_METHOD("get_global_bone_transform_3d", "bone_name"), &SpineSprite3D::get_global_bone_transform_3d);
+	ClassDB::bind_method(D_METHOD("set_global_bone_transform_3d", "bone_name", "xform"), &SpineSprite3D::set_global_bone_transform_3d);
+
 	ADD_SIGNAL(MethodInfo("animation_started", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D"),
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
 						  PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry")));
@@ -396,10 +400,21 @@ void SpineSprite3D::build_meshes() {
 	bool aabb_init = false;
 	int surface_index = 0;
 
+	// Task 9: Build slot_index -> SpineSlotNode3D* lookup for per-slot material batch-break.
+	HashMap<int, SpineSlotNode3D *> slot_node_map;
+	for (int ci = 0; ci < get_child_count(); ci++) {
+		SpineSlotNode3D *sn = Object::cast_to<SpineSlotNode3D>(get_child(ci));
+		if (sn && sn->get_slot_index() >= 0) {
+			slot_node_map[sn->get_slot_index()] = sn;
+		}
+	}
+
 	SpineRendererObject *current_ro = nullptr;
 	// Task 4: track current blend + pma for batch breaking
 	spine::BlendMode current_blend = spine::BlendMode_Normal;
 	bool current_pma = false;
+	// Task 9: track which slot node (if any) owns the current surface
+	SpineSlotNode3D *current_slot_node = nullptr;
 
 	// Reset scratch buffers.
 	scratch_positions.clear();
@@ -425,13 +440,24 @@ void SpineSprite3D::build_meshes() {
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
 				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
-		// Task 8: check for a per-blend-mode custom material override first.
+		// Task 9: slot-node material override takes precedence over sprite-level (Task 8) and library clone.
 		Ref<Material> custom_mat;
-		switch (current_blend) {
-			case spine::BlendMode_Normal:   custom_mat = normal_material; break;
-			case spine::BlendMode_Additive: custom_mat = additive_material; break;
-			case spine::BlendMode_Multiply: custom_mat = multiply_material; break;
-			default: custom_mat = screen_material; break; // Screen (rare/none in practice)
+		if (current_slot_node) {
+			switch (current_blend) {
+				case spine::BlendMode_Normal:   custom_mat = current_slot_node->get_normal_material(); break;
+				case spine::BlendMode_Additive: custom_mat = current_slot_node->get_additive_material(); break;
+				case spine::BlendMode_Multiply: custom_mat = current_slot_node->get_multiply_material(); break;
+				default: custom_mat = current_slot_node->get_screen_material(); break;
+			}
+		}
+		// Task 8: fall back to sprite-level per-blend-mode custom material.
+		if (!custom_mat.is_valid()) {
+			switch (current_blend) {
+				case spine::BlendMode_Normal:   custom_mat = normal_material; break;
+				case spine::BlendMode_Additive: custom_mat = additive_material; break;
+				case spine::BlendMode_Multiply: custom_mat = multiply_material; break;
+				default: custom_mat = screen_material; break; // Screen (rare/none in practice)
+			}
 		}
 
 		if (custom_mat.is_valid()) {
@@ -569,13 +595,18 @@ void SpineSprite3D::build_meshes() {
 		// Task 4: read PMA from atlas page
 		bool slot_pma = atlas_page ? atlas_page->pma : false;
 
-		// Task 4: Flush if we switch texture page, blend mode, or PMA flag
-		if (current_ro && (ro != current_ro || slot_blend != current_blend || slot_pma != current_pma)) {
+		// Task 9: look up whether this slot has a slot-node with a custom material
+		SpineSlotNode3D *this_slot_node = slot_node_map.has(i) ? slot_node_map[i] : nullptr;
+
+		// Task 4: Flush if we switch texture page, blend mode, or PMA flag.
+		// Task 9: Also flush if the slot-node material changes (entering or leaving a slot-node surface).
+		if (current_ro && (ro != current_ro || slot_blend != current_blend || slot_pma != current_pma || this_slot_node != current_slot_node)) {
 			flush();
 		}
 		current_ro = ro;
 		current_blend = slot_blend;
 		current_pma = slot_pma;
+		current_slot_node = this_slot_node;
 
 		int base = (int) scratch_positions.size();
 		int num_verts = (int) world_verts->size() / 2;
@@ -772,4 +803,58 @@ Ref<Material> SpineSprite3D::get_screen_material() {
 
 void SpineSprite3D::clear_statics() {
 	SpineSprite3DStatics::clear();
+}
+
+// Task 9 — Lifting helper: maps a Spine 2D bone (Y-down) into a Godot 3D local Transform3D (Y-up).
+// The Spine affine matrix is [a c worldX; b d worldY] where a,b are the X-axis and c,d the Y-axis.
+// To convert Y-down -> Y-up we negate the Y component of every world position and basis row.
+// IMPORTANT: the exact sign convention in the basis columns may need visual tweaking (Task 12).
+Transform3D SpineSprite3D::bone_to_transform3d(spine::Bone *bone, float slot_z) const {
+	float a = bone->getAppliedPose().getA();
+	float b = bone->getAppliedPose().getB();
+	float c = bone->getAppliedPose().getC();
+	float d = bone->getAppliedPose().getD();
+	float wx = bone->getAppliedPose().getWorldX() * pixel_size;
+	float wy = -bone->getAppliedPose().getWorldY() * pixel_size;
+	Basis basis;
+	basis.set_column(0, Vector3(a, -b, 0));   // X axis: negate y component for Y-up
+	basis.set_column(1, Vector3(-c, d, 0));   // Y axis: negate x component for handedness
+	basis.set_column(2, Vector3(0, 0, 1));    // Z normal (into screen)
+	return Transform3D(basis, Vector3(wx, wy, slot_z));
+}
+
+Transform3D SpineSprite3D::get_global_bone_transform_3d(const String &bone_name) {
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return get_global_transform();
+	auto bone_ref = skeleton->find_bone(bone_name);
+	if (!bone_ref.is_valid()) return get_global_transform();
+	spine::Bone *bone = bone_ref->get_spine_object();
+	if (!bone) return get_global_transform();
+	return get_global_transform() * bone_to_transform3d(bone, 0.0f);
+}
+
+void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transform3D xform) {
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+	auto bone_ref = skeleton->find_bone(bone_name);
+	if (!bone_ref.is_valid()) return;
+	spine::Bone *bone = bone_ref->get_spine_object();
+	if (!bone) return;
+
+	// Convert from global 3D space to sprite-local bone space.
+	Transform3D local = get_global_transform().affine_inverse() * xform;
+	Vector3 origin = local.origin;
+	// Extract basis columns back to Spine a,b,c,d (inverse of bone_to_transform3d).
+	Vector3 col0 = local.basis.get_column(0); // (a, -b, ...)
+	Vector3 col1 = local.basis.get_column(1); // (-c, d, ...)
+
+	auto &pose = bone->getAppliedPose();
+	pose.setA(col0.x);
+	pose.setB(-col0.y);
+	pose.setC(-col1.x);
+	pose.setD(col1.y);
+	pose.setWorldX(origin.x / pixel_size);
+	pose.setWorldY(-origin.y / pixel_size);
+	pose.updateLocalTransform(*skeleton->get_spine_object());
+	bone->getPose().set(pose);
+
+	modified_bones = true;
 }

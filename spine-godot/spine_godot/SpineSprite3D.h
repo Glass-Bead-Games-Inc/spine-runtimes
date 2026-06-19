@@ -168,6 +168,11 @@ public:
 	void set_screen_material(Ref<Material> v);
 	Ref<Material> get_screen_material();
 
+	// Task 9: lifting helper and global bone transform accessors
+	Transform3D bone_to_transform3d(spine::Bone *bone, float slot_z) const;
+	Transform3D get_global_bone_transform_3d(const String &bone_name);
+	void set_global_bone_transform_3d(const String &bone_name, Transform3D xform);
+
 	static void clear_statics();
 };
 

@@ -71,6 +71,8 @@
 #include "SpineConstant.h"
 #include "SpineSlotNode.h"
 #include "SpineBoneNode.h"
+#include "SpineSlotNode3D.h"
+#include "SpineBoneNode3D.h"
 #include "spine/Bone.h"
 
 static SpineAtlasResourceFormatLoader *atlas_loader;
@@ -186,6 +188,8 @@ void register_spine_godot_types() {
 
 	GDREGISTER_CLASS(SpineSlotNode);
 	GDREGISTER_CLASS(SpineBoneNode);
+	GDREGISTER_CLASS(SpineSlotNode3D);
+	GDREGISTER_CLASS(SpineBoneNode3D);
 #ifndef SPINE_GODOT_EXTENSION
 	GDREGISTER_CLASS(SpineAnimationTrack);
 #endif

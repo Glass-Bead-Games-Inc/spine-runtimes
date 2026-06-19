@@ -57,6 +57,8 @@ class SpineSkeleton : public REFCOUNTED {
 	friend class SpineAnimationTrack;
 	friend class SpineBoneNode;
 	friend class SpineSlotNode;
+	friend class SpineBoneNode3D;
+	friend class SpineSlotNode3D;
 	friend class SpinePhysicsConstraint;
 	friend class SpineIkConstraint;
 	friend class SpineTransformConstraint;
