@@ -153,10 +153,30 @@ private:
 
 	// Build shader source for the debug lines overlay.
 	// Unshaded, vertex_color_use_as_albedo, no depth test so lines always show through.
+	// Includes the same billboard vertex() transform as the main render shader so that
+	// on billboarded sprites the debug lines track the rendered geometry.
 	static String build_lines_shader_source() {
 		return String(
 			"shader_type spatial;\n"
 			"render_mode unshaded, cull_disabled, depth_test_disabled;\n"
+			"\n"
+			"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+			"\n"
+			"void vertex() {\n"
+			"    if (billboard_mode == 1) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    } else if (billboard_mode == 2) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+			"            vec4(0.0,1.0,0.0,0.0),\n"
+			"            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    }\n"
+			"}\n"
 			"\n"
 			"void fragment() {\n"
 			"    ALBEDO = COLOR.rgb;\n"
@@ -164,33 +184,29 @@ private:
 			"}\n");
 	}
 
-	static Ref<ShaderMaterial> make_lines_material() {
+	static Ref<Shader> make_lines_shader() {
 		Ref<Shader> shader;
 		shader.instantiate();
 		shader->set_code(build_lines_shader_source());
-
-		Ref<ShaderMaterial> mat;
-		mat.instantiate();
-		mat->set_shader(shader);
-		return mat;
+		return shader;
 	}
 
 public:
 	// Cache key: blend * 4 + shaded * 2 + pma  (max index = 3*4+2+1 = 15)
 	Ref<ShaderMaterial> materials[16];
-	// Task 11: shared unshaded, depth-test-disabled lines material for debug overlay
-	Ref<ShaderMaterial> lines_material;
+	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
+	Ref<Shader> lines_shader;
 	int sprite_count;
 
 	SpineSprite3DStatics() : sprite_count(0) {
 		// Variants are built lazily on first get_material() call.
 	}
 
-	Ref<ShaderMaterial> get_lines_material() {
-		if (!lines_material.is_valid()) {
-			lines_material = make_lines_material();
+	Ref<Shader> get_lines_shader() {
+		if (!lines_shader.is_valid()) {
+			lines_shader = make_lines_shader();
 		}
-		return lines_material;
+		return lines_shader;
 	}
 
 	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma) {
@@ -1025,13 +1041,18 @@ void SpineSprite3D::build_debug_mesh() {
 	RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, arrays, Array(), Dictionary(),
 			RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
-	// Assign the shared unshaded, depth-test-disabled lines material to this surface.
-	Ref<ShaderMaterial> lmat = statics.get_lines_material();
-	if (lmat.is_valid()) {
-		int surface_count = RS::get_singleton()->mesh_get_surface_count(mesh);
-		if (surface_count > 0) {
-			RS::get_singleton()->mesh_surface_set_material(mesh, surface_count - 1, lmat->get_rid());
-		}
+	// Lazily create the per-sprite debug lines material from the shared lines shader.
+	// Each sprite has its own material so billboard_mode can be set independently.
+	if (!debug_lines_material.is_valid()) {
+		debug_lines_material.instantiate();
+		debug_lines_material->set_shader(statics.get_lines_shader());
+		debug_lines_material->set_render_priority(127); // draw on top among transparent surfaces
+	}
+	debug_lines_material->set_shader_parameter("billboard_mode", (int) billboard);
+
+	int surface_count = RS::get_singleton()->mesh_get_surface_count(mesh);
+	if (surface_count > 0) {
+		RS::get_singleton()->mesh_surface_set_material(mesh, surface_count - 1, debug_lines_material->get_rid());
 	}
 }
 
@@ -1126,6 +1147,10 @@ void SpineSprite3D::set_billboard(BillboardMode v) {
 	// Update billboard_mode on all already-cached per-instance material clones.
 	for (auto &entry : material_cache) {
 		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
+	}
+	// Update debug lines material so overlay stays aligned with the rendered regions.
+	if (debug_lines_material.is_valid()) {
+		debug_lines_material->set_shader_parameter("billboard_mode", (int) billboard);
 	}
 	if (skeleton.is_valid()) build_meshes();
 }

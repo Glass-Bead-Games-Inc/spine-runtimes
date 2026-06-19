@@ -115,6 +115,7 @@ protected:
 	Color debug_clipping_color;
 
 	RID debug_mesh; // owned RS mesh for the PRIMITIVE_LINES debug surface (Task 11)
+	Ref<ShaderMaterial> debug_lines_material; // per-sprite debug lines material (billboard_mode + priority 127)
 
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
