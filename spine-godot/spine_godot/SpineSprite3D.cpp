@@ -595,8 +595,11 @@ void SpineSprite3D::build_meshes() {
 		// Task 4: read PMA from atlas page
 		bool slot_pma = atlas_page ? atlas_page->pma : false;
 
-		// Task 9: look up whether this slot has a slot-node with a custom material
-		SpineSlotNode3D *this_slot_node = slot_node_map.has(i) ? slot_node_map[i] : nullptr;
+		// Task 9: look up whether this slot has a slot-node with a custom material.
+		// Use the slot's setup-pose DATA index (not draw-order loop index i) so the
+		// lookup matches the map key built from get_slot_index() = getData().getIndex().
+		int slot_data_idx = slot->getData().getIndex();
+		SpineSlotNode3D *this_slot_node = slot_node_map.has(slot_data_idx) ? slot_node_map[slot_data_idx] : nullptr;
 
 		// Task 4: Flush if we switch texture page, blend mode, or PMA flag.
 		// Task 9: Also flush if the slot-node material changes (entering or leaving a slot-node surface).
