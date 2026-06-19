@@ -539,6 +539,41 @@ void SpineSprite3D::build_meshes() {
 		arrays[Mesh::ARRAY_COLOR] = scratch_colors;
 		arrays[Mesh::ARRAY_INDEX] = scratch_indices;
 
+		// Task 6: shaded surfaces need per-vertex normals and tangents so the spatial shader
+		// can write NORMAL_MAP without triggering Godot's "mesh missing tangents" warning.
+		// The card faces +Z in local space; billboard reorients toward camera at render time.
+		// Unshaded surfaces skip these arrays to avoid unnecessary vertex data.
+		if (shaded) {
+			int vc = (int) scratch_positions.size();
+#ifdef SPINE_GODOT_EXTENSION
+			PackedVector3Array normals;
+			PackedFloat32Array tangents;
+			normals.resize(vc);
+			tangents.resize(vc * 4);
+			for (int ni = 0; ni < vc; ni++) {
+				normals[ni] = Vector3(0, 0, 1);
+				tangents[ni * 4 + 0] = 1.0f; // tangent X
+				tangents[ni * 4 + 1] = 0.0f; // tangent Y
+				tangents[ni * 4 + 2] = 0.0f; // tangent Z
+				tangents[ni * 4 + 3] = 1.0f; // binormal sign
+			}
+#else
+			Vector<Vector3> normals;
+			Vector<float> tangents;
+			normals.resize(vc);
+			tangents.resize(vc * 4);
+			for (int ni = 0; ni < vc; ni++) {
+				normals.write[ni] = Vector3(0, 0, 1);
+				tangents.write[ni * 4 + 0] = 1.0f;
+				tangents.write[ni * 4 + 1] = 0.0f;
+				tangents.write[ni * 4 + 2] = 0.0f;
+				tangents.write[ni * 4 + 3] = 1.0f;
+			}
+#endif
+			arrays[Mesh::ARRAY_NORMAL] = normals;
+			arrays[Mesh::ARRAY_TANGENT] = tangents;
+		}
+
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
 				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
