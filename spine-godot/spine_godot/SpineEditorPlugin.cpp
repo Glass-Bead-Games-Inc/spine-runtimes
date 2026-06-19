@@ -694,7 +694,7 @@ bool SpineSpriteInspectorPlugin::_can_handle(Object *object) const {
 #else
 bool SpineSpriteInspectorPlugin::can_handle(Object *object) {
 #endif
-	return Object::cast_to<SpineSprite>(object) != nullptr;
+	return Object::cast_to<SpineSprite>(object) != nullptr || Object::cast_to<SpineSprite3D>(object) != nullptr;
 }
 
 #ifdef SPINE_GODOT_EXTENSION
@@ -702,9 +702,11 @@ void SpineSpriteInspectorPlugin::_parse_begin(Object *object) {
 #else
 void SpineSpriteInspectorPlugin::parse_begin(Object *object) {
 #endif
-	sprite = Object::cast_to<SpineSprite>(object);
-	if (!sprite) return;
-	if (!sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	if (SpineSprite *s = Object::cast_to<SpineSprite>(object)) sprite_owner = s;
+	else if (SpineSprite3D *s3 = Object::cast_to<SpineSprite3D>(object)) sprite_owner = s3;
+	else sprite_owner = nullptr;
+	if (!sprite_owner) return;
+	if (!sprite_owner->get_skeleton_data_res().is_valid() || !sprite_owner->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
 }
 
 #endif

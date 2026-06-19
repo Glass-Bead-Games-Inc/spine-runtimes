@@ -31,6 +31,8 @@
 
 #ifndef SPINE_GODOT_EXTENSION
 #include "SpineSprite.h"
+#include "SpineSprite3D.h"
+#include "SpineSpriteOwner.h"
 #include "scene/animation/animation_player.h"
 #include "scene/resources/animation.h"
 
@@ -59,7 +61,14 @@ protected:
 	bool blend_tree_mode;
 	bool debug;
 
-	SpineSprite *sprite;
+	SpineSpriteOwner *sprite_owner;
+
+	// Resolves a Godot Object to a SpineSpriteOwner without RTTI (Godot is built with -fno-rtti).
+	static SpineSpriteOwner *resolve_owner(Object *o) {
+		if (SpineSprite *s = Object::cast_to<SpineSprite>(o)) return s;
+		if (SpineSprite3D *s3 = Object::cast_to<SpineSprite3D>(o)) return s3;
+		return nullptr;
+	}
 
 	static void _bind_methods();
 

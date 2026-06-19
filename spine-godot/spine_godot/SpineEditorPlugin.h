@@ -31,6 +31,8 @@
 
 #ifdef TOOLS_ENABLED
 #include "SpineSprite.h"
+#include "SpineSprite3D.h"
+#include "SpineSpriteOwner.h"
 #if VERSION_MAJOR > 3
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/classes/editor_import_plugin.hpp>
@@ -546,7 +548,7 @@ public:
 class SpineSpriteInspectorPlugin : public EditorInspectorPlugin {
 	GDCLASS(SpineSpriteInspectorPlugin, EditorInspectorPlugin)
 
-	SpineSprite *sprite;
+	SpineSpriteOwner *sprite_owner;
 
 	static void _bind_methods();
 	void button_clicked(const String &button_name);

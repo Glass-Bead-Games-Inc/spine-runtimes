@@ -48,6 +48,7 @@ using namespace godot;
 
 class SpineSkeleton;
 class SpineSkeletonDataResource;
+class SpineAnimationState;
 
 // Non-GDCLASS abstract interface implemented by both SpineSprite (Node2D) and
 // SpineSprite3D (GeometryInstance3D) so the data layer (SpineSkeleton,
@@ -62,6 +63,7 @@ public:
 	virtual ~SpineSpriteOwner() {}
 	virtual Ref<SpineSkeleton> get_skeleton() = 0;
 	virtual Ref<SpineSkeletonDataResource> get_skeleton_data_res() = 0;
+	virtual Ref<SpineAnimationState> get_animation_state() = 0;
 	virtual void set_modified_bones() = 0;
 	virtual Node *owner_as_node() = 0;// returns `this` adjusted to Node*; used for signal connect and 2D casts
 };
