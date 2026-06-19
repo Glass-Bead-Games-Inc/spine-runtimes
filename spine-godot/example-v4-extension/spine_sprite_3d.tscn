@@ -1,0 +1,52 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://SpineSprite3DDemo.gd" id="1_script"]
+[ext_resource type="SpineSkeletonDataResource" path="res://assets/spineboy/spineboy-data-res.tres" id="2_data"]
+
+[sub_resource type="PlaneMesh" id="1_planemesh"]
+size = Vector2(40, 40)
+
+[sub_resource type="BoxMesh" id="2_boxmesh"]
+size = Vector3(1, 4, 1)
+
+[sub_resource type="BoxMesh" id="3_cubemesh"]
+size = Vector3(0.2, 0.2, 0.2)
+
+[node name="SpineSprite3DDemo" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 18)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0.866, 0, -0.866, 0.5, 0, 5, 5)
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
+mesh = SubResource("1_planemesh")
+
+[node name="Pillar" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1, 1)
+mesh = SubResource("2_boxmesh")
+
+[node name="SpineboyFreeOriented" type="SpineSprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 0)
+skeleton_data_res = ExtResource("2_data")
+
+[node name="GunBoneNode" type="SpineBoneNode3D" parent="SpineboyFreeOriented"]
+bone_name = "gun"
+
+[node name="GunCube" type="MeshInstance3D" parent="SpineboyFreeOriented/GunBoneNode"]
+mesh = SubResource("3_cubemesh")
+
+[node name="SpineboyBillboard" type="SpineSprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+skeleton_data_res = ExtResource("2_data")
+billboard = 1
+
+[node name="SpineboyShaded" type="SpineSprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 2)
+skeleton_data_res = ExtResource("2_data")
+shaded = true
+z_spacing = 0.001
