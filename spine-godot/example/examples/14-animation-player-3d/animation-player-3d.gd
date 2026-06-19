@@ -1,42 +1,37 @@
 extends Node3D
 
-# Demonstrates driving a SpineSprite3D via an AnimationPlayer that is
-# auto-created at runtime by SpineAnimationTrack (module-only feature).
-# The AnimationPlayer lives under $Spineboy/AnimationTrack and is populated
-# with one Animation per skeleton animation by SpineAnimationTrack._ready().
+# Faithful 3D port of example 08 (AnimationPlayer cutscene).
+# The top-level AnimationPlayer plays a "cutscene" Animation that drives
+# three per-track AnimationPlayers auto-created at runtime by SpineAnimationTrack.
+# After the cutscene ends, arrow-key input moves Spineboy.
+
+@onready var player: AnimationPlayer = $AnimationPlayer
+@onready var spineboy: SpineSprite3D = $Spineboy
+
+var speed: float = 8.0
+var velocity_x: float = 0.0
 
 func _ready() -> void:
-	var track: SpineAnimationTrack = $Spineboy/AnimationTrack
+	player.play("cutscene")
 
-	# SpineAnimationTrack.setup_animation_player() runs in its own _ready(),
-	# which fires before this Node3D's _ready() (children ready before parents).
-	# So the AnimationPlayer child should already exist here.
-	var anim_player: AnimationPlayer = null
-	for child in track.get_children():
-		if child is AnimationPlayer:
-			anim_player = child
-			break
+func _process(delta: float) -> void:
+	if not player.is_playing():
+		if Input.is_action_just_released("ui_left"):
+			spineboy.get_animation_state().set_animation("idle", true, 0)
+			velocity_x = 0.0
 
-	if anim_player == null:
-		push_warning("AnimationPlayer not found under AnimationTrack – SpineAnimationTrack may not have initialised yet.")
-		return
+		if Input.is_action_just_released("ui_right"):
+			spineboy.get_animation_state().set_animation("idle", true, 0)
+			velocity_x = 0.0
 
-	# Pick "walk_looped" if it exists, otherwise fall back to the first
-	# animation that isn't a housekeeping entry.
-	var anim_name := ""
-	if anim_player.has_animation("walk_looped"):
-		anim_name = "walk_looped"
-	else:
-		for name in anim_player.get_animation_list():
-			if name != "RESET" and name != "-- Empty --":
-				anim_name = name
-				break
+		if Input.is_action_just_pressed("ui_right"):
+			spineboy.get_animation_state().set_animation("run", true, 0)
+			spineboy.get_skeleton().set_scale_x(1)
+			velocity_x = 1.0
 
-	if anim_name.is_empty():
-		push_warning("No playable animation found in AnimationPlayer.")
-		return
+		if Input.is_action_just_pressed("ui_left"):
+			spineboy.get_animation_state().set_animation("run", true, 0)
+			spineboy.get_skeleton().set_scale_x(-1)
+			velocity_x = -1.0
 
-	# Play the animation – SpineAnimationTrack will pick up the keyed
-	# animation_name/loop values on the next before_animation_state_update signal.
-	anim_player.play(anim_name)
-	print("AnimationPlayer3D: playing '", anim_name, "'")
+		spineboy.position.x += velocity_x * speed * delta
