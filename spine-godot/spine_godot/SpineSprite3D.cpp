@@ -266,11 +266,13 @@ void SpineSprite3D::_bind_methods() {
 				 "get_multiply_material");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "screen_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_screen_material",
 				 "get_screen_material");
+	ADD_GROUP("Preview", "");
 }
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false) {
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false),
+	  preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -806,6 +808,139 @@ Ref<Material> SpineSprite3D::get_screen_material() {
 
 void SpineSprite3D::clear_statics() {
 	SpineSprite3DStatics::clear();
+}
+
+// ---------------------------------------------------------------------------
+// Task 10: Editor animation preview — ported verbatim from SpineSprite
+// ---------------------------------------------------------------------------
+
+static void update_preview_animation_3d(SpineSprite3D *sprite, const String &skin, const String &animation, bool frame, float time) {
+	if (!Engine::get_singleton()->is_editor_hint()) return;
+	if (!sprite->get_skeleton().is_valid()) return;
+
+	if (EMPTY(skin) || skin == "Default") {
+		sprite->get_skeleton()->set_skin(nullptr);
+	} else {
+		sprite->get_skeleton()->set_skin_by_name(skin);
+	}
+	sprite->get_skeleton()->set_to_setup_pose();
+	if (EMPTY(animation) || animation == "-- Empty --") {
+		sprite->get_animation_state()->set_empty_animation(0, 0);
+		return;
+	}
+
+	auto track_entry = sprite->get_animation_state()->set_animation(animation, true, 0);
+	track_entry->set_mix_duration(0);
+	if (frame) {
+		track_entry->set_time_scale(0);
+		track_entry->set_track_time(time);
+	}
+}
+
+void SpineSprite3D::_get_property_list(List<PropertyInfo> *list) const {
+	if (!skeleton_data_res.is_valid() || !skeleton_data_res->is_skeleton_data_loaded()) return;
+#ifdef SPINE_GODOT_EXTENSION
+	PackedStringArray animation_names;
+	PackedStringArray skin_names;
+#else
+	Vector<String> animation_names;
+	Vector<String> skin_names;
+#endif
+	skeleton_data_res->get_animation_names(animation_names);
+	skeleton_data_res->get_skin_names(skin_names);
+	animation_names.insert(0, "-- Empty --");
+
+	PropertyInfo preview_skin_property;
+	preview_skin_property.name = "preview_skin";
+	preview_skin_property.type = Variant::STRING;
+	preview_skin_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
+	preview_skin_property.hint_string = String(",").join(skin_names);
+	preview_skin_property.hint = PROPERTY_HINT_ENUM;
+	list->push_back(preview_skin_property);
+
+	PropertyInfo preview_anim_property;
+	preview_anim_property.name = "preview_animation";
+	preview_anim_property.type = Variant::STRING;
+	preview_anim_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
+	preview_anim_property.hint_string = String(",").join(animation_names);
+	preview_anim_property.hint = PROPERTY_HINT_ENUM;
+	list->push_back(preview_anim_property);
+
+	PropertyInfo preview_frame_property;
+	preview_frame_property.name = "preview_frame";
+	preview_frame_property.type = Variant::BOOL;
+	preview_frame_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
+	list->push_back(preview_frame_property);
+
+	PropertyInfo preview_time_property;
+	preview_time_property.name = "preview_time";
+	preview_time_property.type = VARIANT_FLOAT;
+	preview_time_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
+	float animation_duration = 0;
+	if (!EMPTY(preview_animation) && preview_animation != "-- Empty --") {
+		auto animation = skeleton_data_res->find_animation(preview_animation);
+		if (animation.is_valid()) animation_duration = animation->get_duration();
+	}
+#ifdef SPINE_GODOT_EXTENSION
+	preview_time_property.hint_string = String("0.0,") + String::num(animation_duration) + String(",0.01");
+#else
+	preview_time_property.hint_string = String("0.0,{0},0.01").format(varray(animation_duration));
+#endif
+	preview_time_property.hint = PROPERTY_HINT_RANGE;
+	list->push_back(preview_time_property);
+}
+
+bool SpineSprite3D::_get(const StringName &property, Variant &value) const {
+	if (property == StringName("preview_skin")) {
+		value = preview_skin;
+		return true;
+	}
+
+	if (property == StringName("preview_animation")) {
+		value = preview_animation;
+		return true;
+	}
+
+	if (property == StringName("preview_frame")) {
+		value = preview_frame;
+		return true;
+	}
+
+	if (property == StringName("preview_time")) {
+		value = preview_time;
+		return true;
+	}
+	return false;
+}
+
+bool SpineSprite3D::_set(const StringName &property, const Variant &value) {
+	if (property == StringName("preview_skin")) {
+		preview_skin = value;
+		update_preview_animation_3d(this, preview_skin, preview_animation, preview_frame, preview_time);
+		NOTIFY_PROPERTY_LIST_CHANGED();
+		return true;
+	}
+
+	if (property == StringName("preview_animation")) {
+		preview_animation = value;
+		update_preview_animation_3d(this, preview_skin, preview_animation, preview_frame, preview_time);
+		NOTIFY_PROPERTY_LIST_CHANGED();
+		return true;
+	}
+
+	if (property == StringName("preview_frame")) {
+		preview_frame = value;
+		update_preview_animation_3d(this, preview_skin, preview_animation, preview_frame, preview_time);
+		return true;
+	}
+
+	if (property == StringName("preview_time")) {
+		preview_time = value;
+		update_preview_animation_3d(this, preview_skin, preview_animation, preview_frame, preview_time);
+		return true;
+	}
+
+	return false;
 }
 
 // Task 9 — Lifting helper: maps a Spine 2D bone (Y-down) into a Godot 3D local Transform3D (Y-up).

@@ -91,6 +91,12 @@ protected:
 	Ref<Material> multiply_material;
 	Ref<Material> screen_material;
 
+	// Task 10: editor preview members
+	String preview_skin;
+	String preview_animation;
+	bool preview_frame;
+	float preview_time;
+
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array scratch_positions;
@@ -113,6 +119,11 @@ protected:
 
 	static void _bind_methods();
 	void _notification(int what);
+
+	// Task 10: editor preview property overrides
+	void _get_property_list(List<PropertyInfo> *list) const;
+	bool _get(const StringName &property, Variant &value) const;
+	bool _set(const StringName &property, const Variant &value);
 
 	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
 
