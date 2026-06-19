@@ -196,9 +196,8 @@ public:
 	Ref<ShaderMaterial> materials[16];
 	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
 	Ref<Shader> lines_shader;
-	int sprite_count;
 
-	SpineSprite3DStatics() : sprite_count(0) {
+	SpineSprite3DStatics() {
 		// Variants are built lazily on first get_material() call.
 	}
 
@@ -390,14 +389,6 @@ SpineSprite3D::~SpineSprite3D() {
 		RS::get_singleton()->free_rid(mesh);
 #else
 		RS::get_singleton()->free(mesh);
-#endif
-	}
-	// Task 11: free debug mesh RID
-	if (debug_mesh.is_valid()) {
-#ifdef SPINE_GODOT_EXTENSION
-		RS::get_singleton()->free_rid(debug_mesh);
-#else
-		RS::get_singleton()->free(debug_mesh);
 #endif
 	}
 }
@@ -1025,14 +1016,11 @@ void SpineSprite3D::build_debug_mesh() {
 	if (dbg_positions.size() == 0) return;
 	if (!mesh.is_valid()) return;
 
-	// Add the debug lines as an additional surface on the primary mesh.
+	// Add the debug lines as an additional PRIMITIVE_LINES surface on the primary mesh RID.
 	// build_meshes() already called set_base(mesh), so this surface is rendered by the
 	// same instance without needing a separate RS instance or scenario setup.
-	// build_meshes() frees and recreates mesh each frame, so the surface is cleaned up
-	// automatically.  debug_mesh RID is used only to track whether we emitted lines
-	// (it is freed above at the top of this function each frame — here we just record
-	// a dummy valid RID so the destructor knows to call free if we crash mid-frame;
-	// actual storage is inside mesh).
+	// build_meshes() frees and recreates mesh each frame, so this surface is cleaned up
+	// automatically — no separate debug mesh RID is needed.
 	Array arrays;
 	arrays.resize(Mesh::ARRAY_MAX);
 	arrays[Mesh::ARRAY_VERTEX] = dbg_positions;

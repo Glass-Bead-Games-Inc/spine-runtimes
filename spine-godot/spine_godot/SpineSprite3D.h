@@ -114,7 +114,6 @@ protected:
 	bool debug_clipping;
 	Color debug_clipping_color;
 
-	RID debug_mesh; // owned RS mesh for the PRIMITIVE_LINES debug surface (Task 11)
 	Ref<ShaderMaterial> debug_lines_material; // per-sprite debug lines material (billboard_mode + priority 127)
 
 	// Task 2: scratch buffers for mesh building
@@ -133,7 +132,7 @@ protected:
 	// Task 2: scratch float buffer for computeWorldVertices
 	spine::Array<float> scratch_world_verts;
 
-	// Task 4: per-instance material cache keyed by (blend<<3 | shaded<<2 | pma<<1 | 0) in high byte + texture RID id.
+	// Task 4: per-instance material cache keyed by (blend * 4 + shaded * 2 + pma) in high byte + texture RID id.
 	// Encoding: key = ((uint64_t)(blend * 4 + shaded * 2 + pma) << 56) | texture_rid_id
 	HashMap<uint64_t, Ref<ShaderMaterial>> material_cache;
 
