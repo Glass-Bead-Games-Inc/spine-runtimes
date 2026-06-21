@@ -75,6 +75,9 @@ private:
 		switch (blend) {
 			case spine::BlendMode_Additive: rm = "blend_add"; break;
 			case spine::BlendMode_Multiply: rm = "blend_mul"; break;
+			// F9: Spine Screen blend is intentionally unsupported in 3D; it maps to
+			// blend_mix and therefore renders as Normal. A custom screen_material can
+			// be supplied for correct Screen rendering. This is by design, not a bug.
 			default: rm = "blend_mix"; break; // Normal (Screen unsupported -> treat as normal)
 		}
 
@@ -384,12 +387,16 @@ SpineSprite3D::SpineSprite3D()
 
 SpineSprite3D::~SpineSprite3D() {
 	delete skeleton_clipper;
+	// F1: clear the instance base before freeing the mesh RID so the
+	// GeometryInstance3D never references a freed RID.
+	set_base(RID());
 	if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
 		RS::get_singleton()->free_rid(mesh);
 #else
 		RS::get_singleton()->free(mesh);
 #endif
+		mesh = RID();
 	}
 }
 
@@ -405,6 +412,21 @@ Ref<SpineSkeletonDataResource> SpineSprite3D::get_skeleton_data_res() {
 void SpineSprite3D::on_skeleton_data_changed() {
 	skeleton.unref();
 	animation_state.unref();
+	// F7/F8: free the existing mesh before clearing the material cache. material_cache
+	// is the sole owner of the per-(variant,texture) ShaderMaterial clones, so clearing
+	// it frees their RIDs. The mesh's surfaces still reference those freed material RIDs;
+	// if the new data is null/unloaded — or in UpdateMode_Manual where build_meshes() is
+	// not driven per-frame — the stale mesh would otherwise persist with dangling
+	// materials. build_meshes() recreates the mesh on the next update when data is valid.
+	if (mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->free_rid(mesh);
+#else
+		RS::get_singleton()->free(mesh);
+#endif
+		mesh = RID();
+	}
+	set_base(RID());
 	// Task 4: clear per-instance material cache; textures change with skeleton data
 	material_cache.clear();
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
@@ -476,7 +498,10 @@ void SpineSprite3D::update_skeleton(float delta) {
 
 	emit_signal(SNAME("before_animation_state_update"), this);
 	animation_state->update(delta * time_scale);
-	if (!is_visible_in_tree()) return;
+	// F14: even while hidden, still apply the animation and update world transforms +
+	// emit world_transforms_changed so attached SpineBoneNode3D / SpineSlotNode3D children
+	// (and gameplay code reading bone transforms) stay current. Only the GPU mesh work
+	// (build_meshes / build_debug_mesh) is skipped when hidden.
 	emit_signal(SNAME("before_animation_state_apply"), this);
 	animation_state->apply(skeleton);
 	emit_signal(SNAME("before_world_transforms_change"), this);
@@ -485,6 +510,7 @@ void SpineSprite3D::update_skeleton(float delta) {
 	modified_bones = false;
 	emit_signal(SNAME("world_transforms_changed"), this);
 	if (modified_bones) skeleton->update_world_transform(SpineConstant::Physics_Update);
+	if (!is_visible_in_tree()) return; // skip only the GPU rebuild while hidden
 	build_meshes();
 	build_debug_mesh(); // Task 11: rebuild debug line overlay
 }
@@ -500,7 +526,13 @@ void SpineSprite3D::build_meshes() {
 		mesh = RID();
 	}
 
-	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+	// F1/F6: the mesh RID was just freed above. Any early-return before the
+	// final set_base(mesh) must first clear the instance base, otherwise the
+	// GeometryInstance3D keeps referencing the freed RID.
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) {
+		set_base(RID());
+		return;
+	}
 	spine::Skeleton *sk = skeleton->get_spine_object();
 	auto &statics = SpineSprite3DStatics::instance();
 
@@ -508,6 +540,11 @@ void SpineSprite3D::build_meshes() {
 	AABB aabb;
 	bool aabb_init = false;
 	int surface_index = 0;
+	// F12: track the max distance from the model origin (0,0,0) to any vertex.
+	// The billboard vertex shader rotates geometry about MODEL_MATRIX[3] (the
+	// model origin), not the geometry centroid, so the swept bounding sphere is
+	// centered on the origin with this radius.
+	float billboard_radius_sq = 0.0f;
 
 	// Task 9: Build slot_index -> SpineSlotNode3D* lookup for per-slot material batch-break.
 	HashMap<int, SpineSlotNode3D *> slot_node_map;
@@ -606,6 +643,13 @@ void SpineSprite3D::build_meshes() {
 
 		if (custom_mat.is_valid()) {
 			// User-owned material: use as-is; do NOT set albedo_tex or maps on it.
+			// F13 NOTE: the spine mesh winding is reversed by the base Y-flip
+			// (sy = -pixel_size), which the auto-generated shaders compensate for
+			// via "render_mode ... cull_disabled". User-supplied custom materials are
+			// assigned verbatim — a StandardMaterial3D / ShaderMaterial with default
+			// back-face culling will cull the visible faces and the slot will appear
+			// invisible. Custom materials MUST disable back-face culling (cull_disabled
+			// / no cull). We cannot safely mutate a user's material here.
 			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, custom_mat->get_rid());
 		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
@@ -777,6 +821,10 @@ void SpineSprite3D::build_meshes() {
 			} else {
 				aabb.expand_to(pos);
 			}
+
+			// F12: distance from the model origin, used to bound billboard rotation.
+			float dist_sq = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
+			if (dist_sq > billboard_radius_sq) billboard_radius_sq = dist_sq;
 		}
 
 		for (int t = 0; t < (int) indices->size(); t++) {
@@ -790,11 +838,14 @@ void SpineSprite3D::build_meshes() {
 	flush(); // flush final surface
 
 	if (aabb_init) {
-		// Task 5: expand to cube when billboarding so rotation never causes frustum culling
+		// Task 5 / F12: expand to a cube centered on the MODEL ORIGIN (not the
+		// geometry centroid) when billboarding, so rotation about the origin never
+		// causes frustum culling. The billboard vertex shader rotates geometry
+		// about MODEL_MATRIX[3] (the origin), so the swept volume is a sphere
+		// centered at (0,0,0) with radius = max distance from origin to any vertex.
 		if (billboard != BILLBOARD_DISABLED) {
-			float r = MAX(aabb.size.x, MAX(aabb.size.y, aabb.size.z));
-			Vector3 c = aabb.position + aabb.size * 0.5f;
-			aabb = AABB(c - Vector3(r, r, r), Vector3(2 * r, 2 * r, 2 * r));
+			float r = spine::MathUtil::sqrt(billboard_radius_sq);
+			aabb = AABB(Vector3(-r, -r, -r), Vector3(2 * r, 2 * r, 2 * r));
 		}
 		RS::get_singleton()->mesh_set_custom_aabb(mesh, aabb);
 	}
@@ -1187,6 +1238,9 @@ Ref<Material> SpineSprite3D::get_multiply_material() {
 }
 
 void SpineSprite3D::set_screen_material(Ref<Material> v) {
+	// F9: Spine Screen blend is not supported by the auto-generated 3D shaders and
+	// renders as Normal (blend_mix). This setter is exposed for parity with the 2D
+	// SpineSprite; supply a custom screen_material to get correct Screen blending.
 	screen_material = v;
 	if (skeleton.is_valid()) build_meshes();
 }
@@ -1335,18 +1389,49 @@ bool SpineSprite3D::_set(const StringName &property, const Variant &value) {
 // Task 9 — Lifting helper: maps a Spine 2D bone (Y-down) into a Godot 3D local Transform3D (Y-up).
 // The Spine affine matrix is [a c worldX; b d worldY] where a,b are the X-axis and c,d the Y-axis.
 // To convert Y-down -> Y-up we negate the Y component of every world position and basis row.
-// IMPORTANT: the exact sign convention in the basis columns may need visual tweaking (Task 12).
+//
+// F2: honor flip_h / flip_v exactly as build_meshes() does. build_meshes maps a Spine
+// world point (X,Y) to the 3D point (X*sx, Y*sy, z) with sx = flip_h?-pixel_size:pixel_size
+// and sy = flip_v?pixel_size:-pixel_size. Relative to the non-flipped baseline
+// (sx0=+pixel_size, sy0=-pixel_size), enabling flip_h multiplies the final 3D X by -1 and
+// enabling flip_v multiplies the final 3D Y by -1. That is a post-multiply diagonal
+// D = diag(fx, fv, 1) applied to the whole (validated) transform — origin AND basis.
+// With fx = fv = 1 this reduces EXACTLY to the previously validated non-flipped result.
+//
+// F4: column 2 (Z) is given a length consistent with the in-plane (X-axis) scale instead of
+// a fixed unit, so a non-uniformly/degenerately scaled bone does not produce a skewed or
+// degenerate basis for attached children.
+// NOTE on scale convention: columns 0/1 carry the bone's Spine world scale in *Spine units*
+// (a,b,c,d are not multiplied by pixel_size here), so a child of a SpineBoneNode3D inherits
+// the bone's pixel-scale rather than pixel_size. This matches the human-validated demo; do
+// not change it without re-validating the attached-node scale.
 Transform3D SpineSprite3D::bone_to_transform3d(spine::Bone *bone, float slot_z) const {
 	float a = bone->getAppliedPose().getA();
 	float b = bone->getAppliedPose().getB();
 	float c = bone->getAppliedPose().getC();
 	float d = bone->getAppliedPose().getD();
-	float wx = bone->getAppliedPose().getWorldX() * pixel_size;
-	float wy = -bone->getAppliedPose().getWorldY() * pixel_size;
+
+	const float fx = flip_h ? -1.0f : 1.0f;
+	const float fv = flip_v ? -1.0f : 1.0f;
+
+	float wx = bone->getAppliedPose().getWorldX() * pixel_size * fx;
+	float wy = -bone->getAppliedPose().getWorldY() * pixel_size * fv;
+
+	Vector3 col0(a * fx, -b * fv, 0);   // X axis: validated (a,-b,0) with flip diagonal applied
+	Vector3 col1(-c * fx, d * fv, 0);   // Y axis: validated (-c,d,0) with flip diagonal applied
+
+	// F4: keep Z well-formed and consistent with the in-plane scale (avoids a degenerate
+	// unit Z when the bone's in-plane scale differs). Sign tracks the handedness flips so the
+	// basis determinant stays consistent with the geometry. Falls back to 1 for zero-scale bones.
+	float in_plane_scale = col0.length();
+	if (in_plane_scale <= 0.0f) in_plane_scale = 1.0f;
+	float zlen = in_plane_scale * fx * fv; // fx*fv keeps determinant sign consistent under flips
+	Vector3 col2(0, 0, zlen);           // Z normal (into screen)
+
 	Basis basis;
-	basis.set_column(0, Vector3(a, -b, 0));   // X axis: negate y component for Y-up
-	basis.set_column(1, Vector3(-c, d, 0));   // Y axis: negate x component for handedness
-	basis.set_column(2, Vector3(0, 0, 1));    // Z normal (into screen)
+	basis.set_column(0, col0);
+	basis.set_column(1, col1);
+	basis.set_column(2, col2);
 	return Transform3D(basis, Vector3(wx, wy, slot_z));
 }
 
@@ -1370,16 +1455,20 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 	Transform3D local = get_global_transform().affine_inverse() * xform;
 	Vector3 origin = local.origin;
 	// Extract basis columns back to Spine a,b,c,d (inverse of bone_to_transform3d).
-	Vector3 col0 = local.basis.get_column(0); // (a, -b, ...)
-	Vector3 col1 = local.basis.get_column(1); // (-c, d, ...)
+	// F2: undo the same flip diagonal D = diag(fx, fv, 1) applied by bone_to_transform3d.
+	// Since fx, fv are ±1, dividing by them is the same as multiplying by them.
+	const float fx = flip_h ? -1.0f : 1.0f;
+	const float fv = flip_v ? -1.0f : 1.0f;
+	Vector3 col0 = local.basis.get_column(0); // (a*fx, -b*fv, ...)
+	Vector3 col1 = local.basis.get_column(1); // (-c*fx, d*fv, ...)
 
 	auto &pose = bone->getAppliedPose();
-	pose.setA(col0.x);
-	pose.setB(-col0.y);
-	pose.setC(-col1.x);
-	pose.setD(col1.y);
-	pose.setWorldX(origin.x / pixel_size);
-	pose.setWorldY(-origin.y / pixel_size);
+	pose.setA(col0.x * fx);
+	pose.setB(-col0.y * fv);
+	pose.setC(-col1.x * fx);
+	pose.setD(col1.y * fv);
+	pose.setWorldX(origin.x * fx / pixel_size);
+	pose.setWorldY(-origin.y * fv / pixel_size);
 	pose.updateLocalTransform(*skeleton->get_spine_object());
 	bone->getPose().set(pose);
 

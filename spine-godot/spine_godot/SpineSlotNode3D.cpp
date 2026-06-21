@@ -153,8 +153,29 @@ void SpineSlotNode3D::update_transform(SpineSprite3D *sprite) {
 	if (!bone_ref.is_valid()) return;
 	spine::Bone *bone = bone_ref->get_spine_object();
 	if (!bone) return;
+
+	// Depth must match SpineSprite3D::build_meshes(), which places each slot's
+	// attachment quad at z = -(draw_order_position) * z_spacing. The setup-pose data
+	// index differs from the draw-order position once a DrawOrderTimeline reorders
+	// slots, so derive z from the slot's current position in the applied draw order.
+	float z = 0.0f;
+	float z_spacing = sprite->get_z_spacing();
+	if (z_spacing != 0.0f) {
+		spine::Skeleton *spine_skeleton = sprite->get_skeleton()->get_spine_object();
+		if (spine_skeleton) {
+			spine::Array<spine::Slot *> &draw_order = spine_skeleton->getDrawOrder().getAppliedPose();
+			for (int pos = 0, n = (int) draw_order.size(); pos < n; pos++) {
+				spine::Slot *slot = draw_order[pos];
+				if (slot && slot->getData().getIndex() == slot_index) {
+					z = -((float) pos) * z_spacing;
+					break;
+				}
+			}
+		}
+	}
+
 	// Place this node in sprite-local space at the slot's bone position, at slot depth
-	set_transform(sprite->bone_to_transform3d(bone, -(float)slot_index * sprite->get_z_spacing()));
+	set_transform(sprite->bone_to_transform3d(bone, z));
 }
 
 void SpineSlotNode3D::set_slot_name(const String &_slot_name) {
