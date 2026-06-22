@@ -27,6 +27,12 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
+// Fix #15: skip all 3D content when a Godot module is built with disable_3d=yes
+// (the engine defines _3D_DISABLED and GeometryInstance3D / 3D rendering APIs are
+// unavailable). In the GDExtension build _3D_DISABLED is never defined, so this is
+// a no-op there (3D still compiles), which is correct.
+#ifndef _3D_DISABLED
+
 #include "SpineSprite3D.h"
 #include "SpineSlotNode3D.h"
 #include "SpineEvent.h"
@@ -381,7 +387,8 @@ SpineSprite3D::SpineSprite3D()
 	  debug_meshes(false), debug_meshes_color(Color(0, 0, 1, 0.5f)),
 	  debug_bounding_boxes(false), debug_bounding_boxes_color(Color(0, 1, 0, 0.5f)),
 	  debug_paths(false), debug_paths_color(Color::hex(0xff7f0077)),
-	  debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)) {
+	  debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)),
+	  debug_active_last_frame(false) {
 	scratch_world_verts.ensureCapacity(1200);
 }
 
@@ -515,36 +522,55 @@ void SpineSprite3D::update_skeleton(float delta) {
 	build_debug_mesh(); // Task 11: rebuild debug line overlay
 }
 
-void SpineSprite3D::build_meshes() {
-	// Full rebuild every frame (simple approach from Task 2).
-	if (mesh.is_valid()) {
+// Fix #10: a single fully-resolved CPU surface produced by build_meshes()'s slot
+// iteration, before it is committed to the RS mesh. Holding these lets us defer the
+// free/recreate decision until we know whether topology matches last frame.
+struct SpineSprite3DLocalSurface {
 #ifdef SPINE_GODOT_EXTENSION
-		RS::get_singleton()->free_rid(mesh);
+	PackedVector3Array positions;
+	PackedVector2Array uvs;
+	PackedColorArray colors;
+	PackedInt32Array indices;
 #else
-		RS::get_singleton()->free(mesh);
+	Vector<Vector3> positions;
+	Vector<Vector2> uvs;
+	Vector<Color> colors;
+	Vector<int> indices;
 #endif
-		mesh = RID();
-	}
+	bool shaded = false;
+	RID material; // resolved material RID for this surface (RID() if none assigned)
+};
 
-	// F1/F6: the mesh RID was just freed above. Any early-return before the
-	// final set_base(mesh) must first clear the instance base, otherwise the
-	// GeometryInstance3D keeps referencing the freed RID.
+void SpineSprite3D::build_meshes() {
+	// F1/F6: if there is no skeleton, clear the instance base (the mesh RID, if any,
+	// would otherwise be referenced by the GeometryInstance3D) and free the mesh.
 	if (!skeleton.is_valid() || !skeleton->get_spine_object()) {
 		set_base(RID());
+		if (mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+			RS::get_singleton()->free_rid(mesh);
+#else
+			RS::get_singleton()->free(mesh);
+#endif
+			mesh = RID();
+		}
+		surface_cache.clear();
+		debug_active_last_frame = false;
 		return;
 	}
 	spine::Skeleton *sk = skeleton->get_spine_object();
 	auto &statics = SpineSprite3DStatics::instance();
 
-	mesh = RS::get_singleton()->mesh_create();
 	AABB aabb;
 	bool aabb_init = false;
-	int surface_index = 0;
 	// F12: track the max distance from the model origin (0,0,0) to any vertex.
 	// The billboard vertex shader rotates geometry about MODEL_MATRIX[3] (the
 	// model origin), not the geometry centroid, so the swept bounding sphere is
 	// centered on the origin with this radius.
 	float billboard_radius_sq = 0.0f;
+
+	// Fix #10: collect resolved surfaces here first; the slow/fast path is chosen afterwards.
+	Vector<SpineSprite3DLocalSurface> local_surfaces;
 
 	// Task 9: Build slot_index -> SpineSlotNode3D* lookup for per-slot material batch-break.
 	HashMap<int, SpineSlotNode3D *> slot_node_map;
@@ -568,58 +594,17 @@ void SpineSprite3D::build_meshes() {
 	scratch_colors.clear();
 	scratch_indices.clear();
 
-	// Task 4: Flush the accumulated scratch buffers as one surface.
+	// Task 4: Flush the accumulated scratch buffers as one resolved surface.
 	// Per-instance material cache: look up or create a ShaderMaterial for (variant, texture).
 	// Key: high byte = blend*4 + shaded*2 + pma; lower 56 bits = texture RID id.
 	// This ensures each surface gets its own correctly-textured material independent of other
 	// SpineSprite3D instances — fixing the Task 2 shared-material / last-write-wins bug.
+	//
+	// Fix #10: this no longer touches the RS mesh; it resolves the material RID exactly as
+	// before and appends a SpineSprite3DLocalSurface. Whether the mesh is rebuilt or
+	// region-updated is decided once after all surfaces are collected.
 	auto flush = [&]() {
 		if (scratch_indices.size() == 0) return;
-
-		Array arrays;
-		arrays.resize(Mesh::ARRAY_MAX);
-		arrays[Mesh::ARRAY_VERTEX] = scratch_positions;
-		arrays[Mesh::ARRAY_TEX_UV] = scratch_uvs;
-		arrays[Mesh::ARRAY_COLOR] = scratch_colors;
-		arrays[Mesh::ARRAY_INDEX] = scratch_indices;
-
-		// Task 6: shaded surfaces need per-vertex normals and tangents so the spatial shader
-		// can write NORMAL_MAP without triggering Godot's "mesh missing tangents" warning.
-		// The card faces +Z in local space; billboard reorients toward camera at render time.
-		// Unshaded surfaces skip these arrays to avoid unnecessary vertex data.
-		if (shaded) {
-			int vc = (int) scratch_positions.size();
-#ifdef SPINE_GODOT_EXTENSION
-			PackedVector3Array normals;
-			PackedFloat32Array tangents;
-			normals.resize(vc);
-			tangents.resize(vc * 4);
-			for (int ni = 0; ni < vc; ni++) {
-				normals[ni] = Vector3(0, 0, 1);
-				tangents[ni * 4 + 0] = 1.0f; // tangent X
-				tangents[ni * 4 + 1] = 0.0f; // tangent Y
-				tangents[ni * 4 + 2] = 0.0f; // tangent Z
-				tangents[ni * 4 + 3] = 1.0f; // binormal sign
-			}
-#else
-			Vector<Vector3> normals;
-			Vector<float> tangents;
-			normals.resize(vc);
-			tangents.resize(vc * 4);
-			for (int ni = 0; ni < vc; ni++) {
-				normals.write[ni] = Vector3(0, 0, 1);
-				tangents.write[ni * 4 + 0] = 1.0f;
-				tangents.write[ni * 4 + 1] = 0.0f;
-				tangents.write[ni * 4 + 2] = 0.0f;
-				tangents.write[ni * 4 + 3] = 1.0f;
-			}
-#endif
-			arrays[Mesh::ARRAY_NORMAL] = normals;
-			arrays[Mesh::ARRAY_TANGENT] = tangents;
-		}
-
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
-				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		// Task 9: slot-node material override takes precedence over sprite-level (Task 8) and library clone.
 		Ref<Material> custom_mat;
@@ -641,6 +626,7 @@ void SpineSprite3D::build_meshes() {
 			}
 		}
 
+		RID surface_material;
 		if (custom_mat.is_valid()) {
 			// User-owned material: use as-is; do NOT set albedo_tex or maps on it.
 			// F13 NOTE: the spine mesh winding is reversed by the base Y-flip
@@ -650,7 +636,7 @@ void SpineSprite3D::build_meshes() {
 			// back-face culling will cull the visible faces and the slot will appear
 			// invisible. Custom materials MUST disable back-face culling (cull_disabled
 			// / no cull). We cannot safely mutate a user's material here.
-			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, custom_mat->get_rid());
+			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
 			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
@@ -677,9 +663,17 @@ void SpineSprite3D::build_meshes() {
 				}
 				material_cache[cache_key] = mat;
 			}
-			RS::get_singleton()->mesh_surface_set_material(mesh, surface_index, mat->get_rid());
+			surface_material = mat->get_rid();
 		}
-		surface_index++;
+
+		SpineSprite3DLocalSurface ls;
+		ls.positions = scratch_positions;
+		ls.uvs = scratch_uvs;
+		ls.colors = scratch_colors;
+		ls.indices = scratch_indices;
+		ls.shaded = shaded;
+		ls.material = surface_material;
+		local_surfaces.push_back(ls);
 
 		// Reset scratch for next surface.
 		scratch_positions.clear();
@@ -837,19 +831,191 @@ void SpineSprite3D::build_meshes() {
 
 	flush(); // flush final surface
 
-	if (aabb_init) {
-		// Task 5 / F12: expand to a cube centered on the MODEL ORIGIN (not the
-		// geometry centroid) when billboarding, so rotation about the origin never
-		// causes frustum culling. The billboard vertex shader rotates geometry
-		// about MODEL_MATRIX[3] (the origin), so the swept volume is a sphere
-		// centered at (0,0,0) with radius = max distance from origin to any vertex.
-		if (billboard != BILLBOARD_DISABLED) {
-			float r = spine::MathUtil::sqrt(billboard_radius_sq);
-			aabb = AABB(Vector3(-r, -r, -r), Vector3(2 * r, 2 * r, 2 * r));
+	// Task 5 / F12: when billboarding, the AABB becomes a cube centered on the MODEL
+	// ORIGIN (not the geometry centroid) so rotation about the origin never causes
+	// frustum culling. The billboard vertex shader rotates geometry about
+	// MODEL_MATRIX[3] (the origin), so the swept volume is a sphere centered at
+	// (0,0,0) with radius = max distance from origin to any vertex.
+	AABB final_aabb = aabb;
+	if (aabb_init && billboard != BILLBOARD_DISABLED) {
+		float r = spine::MathUtil::sqrt(billboard_radius_sq);
+		final_aabb = AABB(Vector3(-r, -r, -r), Vector3(2 * r, 2 * r, 2 * r));
+	}
+
+	const int surface_count = local_surfaces.size();
+
+	// Fix #10: the debug overlay (build_debug_mesh) appends a PRIMITIVE_LINES surface
+	// to this same mesh AFTER build_meshes() returns; that surface is not region-updatable
+	// here. Whenever debug overlays are enabled this frame OR were last frame, take the
+	// SLOW PATH so the freshly-created mesh has exactly the right surface set for
+	// build_debug_mesh to append to (and any stale debug surface is gone). This is the
+	// simplest provably-correct rule.
+	const bool debug_active_this_frame = debug_root || debug_bones || debug_regions ||
+										 debug_meshes || debug_bounding_boxes || debug_paths || debug_clipping;
+	const bool debug_forces_slow = debug_active_this_frame || debug_active_last_frame;
+
+	// Decide FAST PATH: existing mesh, no debug involvement, and per-surface topology
+	// (count, vertex/index counts, shaded vertex layout, index contents, material RID)
+	// all identical to last frame. Otherwise SLOW PATH.
+	bool can_fast = mesh.is_valid() && !debug_forces_slow && surface_cache.size() == surface_count;
+	if (can_fast) {
+		for (int s = 0; s < surface_count; s++) {
+			const SpineSprite3DLocalSurface &ls = local_surfaces[s];
+			const SurfaceCache &sc = surface_cache[s];
+			if (sc.num_vertices != (int) ls.positions.size() || sc.num_indices != (int) ls.indices.size() ||
+				sc.shaded != ls.shaded || sc.material != ls.material || sc.indices != ls.indices) {
+				can_fast = false;
+				break;
+			}
 		}
-		RS::get_singleton()->mesh_set_custom_aabb(mesh, aabb);
+	}
+
+	if (can_fast) {
+		// FAST PATH: update existing surface buffers in place (no free / recreate).
+		for (int s = 0; s < surface_count; s++) {
+			const SpineSprite3DLocalSurface &ls = local_surfaces[s];
+			SurfaceCache &sc = surface_cache.ptrw()[s]; // Vector::operator[] is const; need a mutable ref
+			const int vc = sc.num_vertices;
+
+			uint8_t *vertex_write = sc.vertex_buffer.ptrw();
+			uint8_t *attribute_write = sc.attribute_buffer.ptrw();
+			const uint32_t v_off = sc.surface_offsets[RS::ARRAY_VERTEX];
+			const uint32_t c_off = sc.surface_offsets[RS::ARRAY_COLOR];
+			const uint32_t uv_off = sc.surface_offsets[RS::ARRAY_TEX_UV];
+
+			for (int v = 0; v < vc; v++) {
+				// Positions: only the ARRAY_VERTEX slot changes. For shaded surfaces the
+				// constant normal/tangent bytes live elsewhere in the same vertex stride and
+				// are deliberately left untouched, preserving the validated shaded layout.
+				const Vector3 &p = ls.positions[v];
+				float pos[3] = { (float) p.x, (float) p.y, (float) p.z };
+				memcpy(&vertex_write[v * sc.vertex_stride + v_off], pos, sizeof(float) * 3);
+
+				const Color &col = ls.colors[v];
+				uint8_t color[4] = {
+					uint8_t(CLAMP(col.r * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.g * 255.0, 0.0, 255.0)),
+					uint8_t(CLAMP(col.b * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.a * 255.0, 0.0, 255.0))
+				};
+				memcpy(&attribute_write[v * sc.attribute_stride + c_off], color, 4);
+
+				const Vector2 &t = ls.uvs[v];
+				float uv[2] = { (float) t.x, (float) t.y };
+				memcpy(&attribute_write[v * sc.attribute_stride + uv_off], uv, sizeof(float) * 2);
+			}
+
+			RS::get_singleton()->mesh_surface_update_vertex_region(mesh, s, 0, sc.vertex_buffer);
+			RS::get_singleton()->mesh_surface_update_attribute_region(mesh, s, 0, sc.attribute_buffer);
+		}
+		if (aabb_init) RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
+		// Base already set last (slow) frame; nothing else to do. No debug surface on this path.
+		debug_active_last_frame = false;
+		return;
+	}
+
+	// SLOW PATH: free + recreate the mesh, add all surfaces, assign materials, refresh cache.
+	if (mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->free_rid(mesh);
+#else
+		RS::get_singleton()->free(mesh);
+#endif
+		mesh = RID();
+	}
+	surface_cache.clear();
+	mesh = RS::get_singleton()->mesh_create();
+
+	for (int s = 0; s < surface_count; s++) {
+		const SpineSprite3DLocalSurface &ls = local_surfaces[s];
+
+		Array arrays;
+		arrays.resize(Mesh::ARRAY_MAX);
+		arrays[Mesh::ARRAY_VERTEX] = ls.positions;
+		arrays[Mesh::ARRAY_TEX_UV] = ls.uvs;
+		arrays[Mesh::ARRAY_COLOR] = ls.colors;
+		arrays[Mesh::ARRAY_INDEX] = ls.indices;
+
+		// Task 6: shaded surfaces need per-vertex normals and tangents so the spatial shader
+		// can write NORMAL_MAP without triggering Godot's "mesh missing tangents" warning.
+		// The card faces +Z in local space; billboard reorients toward camera at render time.
+		// Unshaded surfaces skip these arrays to avoid unnecessary vertex data.
+		if (ls.shaded) {
+			int vc = (int) ls.positions.size();
+#ifdef SPINE_GODOT_EXTENSION
+			PackedVector3Array normals;
+			PackedFloat32Array tangents;
+			normals.resize(vc);
+			tangents.resize(vc * 4);
+			for (int ni = 0; ni < vc; ni++) {
+				normals[ni] = Vector3(0, 0, 1);
+				tangents[ni * 4 + 0] = 1.0f; // tangent X
+				tangents[ni * 4 + 1] = 0.0f; // tangent Y
+				tangents[ni * 4 + 2] = 0.0f; // tangent Z
+				tangents[ni * 4 + 3] = 1.0f; // binormal sign
+			}
+#else
+			Vector<Vector3> normals;
+			Vector<float> tangents;
+			normals.resize(vc);
+			tangents.resize(vc * 4);
+			for (int ni = 0; ni < vc; ni++) {
+				normals.write[ni] = Vector3(0, 0, 1);
+				tangents.write[ni * 4 + 0] = 1.0f;
+				tangents.write[ni * 4 + 1] = 0.0f;
+				tangents.write[ni * 4 + 2] = 0.0f;
+				tangents.write[ni * 4 + 3] = 1.0f;
+			}
+#endif
+			arrays[Mesh::ARRAY_NORMAL] = normals;
+			arrays[Mesh::ARRAY_TANGENT] = tangents;
+		}
+
+		SurfaceCache sc;
+		sc.num_vertices = (int) ls.positions.size();
+		sc.num_indices = (int) ls.indices.size();
+		sc.shaded = ls.shaded;
+		sc.indices = ls.indices;
+		sc.material = ls.material;
+
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
+				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		// Capture the surface layout + buffers for subsequent fast-path region updates.
+		Dictionary surface = RS::get_singleton()->mesh_get_surface(mesh, s);
+		RS::ArrayFormat surface_format = (RS::ArrayFormat) static_cast<int64_t>(surface["format"]);
+		sc.surface_offsets[RS::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_VERTEX);
+		sc.surface_offsets[RS::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_COLOR);
+		sc.surface_offsets[RS::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_TEX_UV);
+		sc.vertex_stride = RS::get_singleton()->mesh_surface_get_format_vertex_stride(surface_format, sc.num_vertices);
+		sc.attribute_stride = RS::get_singleton()->mesh_surface_get_format_attribute_stride(surface_format, sc.num_vertices);
+		sc.vertex_buffer = surface["vertex_data"];
+		sc.attribute_buffer = surface["attribute_data"];
+#else
+		RS::SurfaceData surface;
+		uint32_t skin_stride = 0;
+		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (RS::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
+				TypedArray<Array>(), Dictionary(), Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface(mesh, surface);
+		RS::get_singleton()->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count,
+				sc.surface_offsets, sc.vertex_stride, sc.normal_tangent_stride, sc.attribute_stride, skin_stride);
+		sc.vertex_buffer = surface.vertex_data;
+		sc.attribute_buffer = surface.attribute_data;
+#endif
+
+		if (ls.material.is_valid()) {
+			RS::get_singleton()->mesh_surface_set_material(mesh, s, ls.material);
+		}
+
+		surface_cache.push_back(sc);
+	}
+
+	if (aabb_init) {
+		RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
 	}
 	set_base(mesh);
+	// build_debug_mesh() runs next and may append a PRIMITIVE_LINES surface to this mesh.
+	// Record this frame's debug state so the next frame forces a slow rebuild if debug
+	// was (or becomes) active, keeping surface_cache aligned with the renderable surfaces.
+	debug_active_last_frame = debug_active_this_frame;
 }
 
 // ---------------------------------------------------------------------------
@@ -1474,3 +1640,5 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 
 	modified_bones = true;
 }
+
+#endif // _3D_DISABLED

@@ -29,6 +29,8 @@
 
 #include "SpineSlotNode3D.h"
 
+#ifndef _3D_DISABLED
+
 void SpineSlotNode3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_world_transforms_changed", "spine_sprite"), &SpineSlotNode3D::on_world_transforms_changed);
 
@@ -217,3 +219,5 @@ Ref<Material> SpineSlotNode3D::get_screen_material() {
 void SpineSlotNode3D::set_screen_material(Ref<Material> material) {
 	screen_material = material;
 }
+
+#endif // _3D_DISABLED

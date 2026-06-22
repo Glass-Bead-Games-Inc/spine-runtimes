@@ -29,6 +29,8 @@
 
 #pragma once
 
+#ifndef _3D_DISABLED
+
 #include "SpineCommon.h"
 #include "SpineSprite3D.h"
 #ifdef SPINE_GODOT_EXTENSION
@@ -79,3 +81,5 @@ public:
 	Ref<Material> get_screen_material();
 	void set_screen_material(Ref<Material> material);
 };
+
+#endif // _3D_DISABLED

@@ -29,6 +29,8 @@
 
 #include "SpineBoneNode3D.h"
 
+#ifndef _3D_DISABLED
+
 void SpineBoneNode3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_world_transforms_changed", "spine_sprite"), &SpineBoneNode3D::on_world_transforms_changed);
 	ClassDB::bind_method(D_METHOD("set_bone_name", "bone_name"), &SpineBoneNode3D::set_bone_name);
@@ -142,3 +144,5 @@ void SpineBoneNode3D::set_bone_name(const String &_bone_name) {
 String SpineBoneNode3D::get_bone_name() {
 	return bone_name;
 }
+
+#endif // _3D_DISABLED

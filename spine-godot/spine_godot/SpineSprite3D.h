@@ -29,6 +29,13 @@
 
 #pragma once
 
+// Fix #15: when a Godot module is built with disable_3d=yes the engine defines
+// _3D_DISABLED and GeometryInstance3D / 3D rendering APIs are unavailable. Skip
+// all compilable content of this 3D node in that configuration. In the
+// GDExtension build _3D_DISABLED is never defined, so this guard is a no-op there
+// (3D still compiles), which is correct.
+#ifndef _3D_DISABLED
+
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineConstant.h"
@@ -43,7 +50,14 @@
 #else
 #include "scene/3d/visual_instance_3d.h" // declares GeometryInstance3D
 #include "core/templates/hash_map.h"
+#include "core/templates/vector.h"
 #include "scene/resources/material.h" // declares Material + ShaderMaterial (no separate shader_material.h in 4.x)
+// Fix #10: SurfaceCache below references RS::ARRAY_MAX and the region-update layout.
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
+#include "servers/rendering/rendering_server.h"
+#else
+#include "servers/rendering_server.h"
+#endif
 #endif
 
 #include <spine/SkeletonClipping.h>
@@ -135,6 +149,33 @@ protected:
 	// Task 4: per-instance material cache keyed by (blend * 4 + shaded * 2 + pma) in high byte + texture RID id.
 	// Encoding: key = ((uint64_t)(blend * 4 + shaded * 2 + pma) << 56) | texture_rid_id
 	HashMap<uint64_t, Ref<ShaderMaterial>> material_cache;
+
+	// Fix #10: per-surface cache for the build_meshes() fast path. When the surface
+	// topology (count, per-surface vertex/index counts, index contents and chosen
+	// material RID) is identical to the previous frame, build_meshes() updates the
+	// existing surfaces' vertex/attribute buffers in place via
+	// mesh_surface_update_vertex_region / mesh_surface_update_attribute_region rather
+	// than freeing + recreating the whole mesh. Mirrors SpineMesh2D::update_mesh.
+	struct SurfaceCache {
+		int num_vertices = 0;
+		int num_indices = 0;
+		bool shaded = false; // vertex layout (normal/tangent present) was built shaded
+#ifdef SPINE_GODOT_EXTENSION
+		PackedInt32Array indices; // last-frame index contents, for topology compare
+#else
+		Vector<int> indices;
+#endif
+		RID material; // material RID assigned to the surface (RID() if none)
+		// Surface buffer layout for region updates (mirrors SpineMesh2D fields).
+		uint32_t surface_offsets[RS::ARRAY_MAX] = {};
+		uint32_t vertex_stride = 0;
+		uint32_t normal_tangent_stride = 0;
+		uint32_t attribute_stride = 0;
+		PackedByteArray vertex_buffer;
+		PackedByteArray attribute_buffer;
+	};
+	Vector<SurfaceCache> surface_cache; // one entry per non-debug surface built last frame
+	bool debug_active_last_frame; // whether the debug overlay produced a surface last frame
 
 	static void _bind_methods();
 	void _notification(int what);
@@ -240,3 +281,5 @@ public:
 };
 
 VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)
+
+#endif // _3D_DISABLED
