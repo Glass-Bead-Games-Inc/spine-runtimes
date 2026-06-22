@@ -124,13 +124,16 @@ using namespace godot;
 #define SPINE_STRING(x) spine::String((x).utf8().ptr())
 #define SPINE_STRING_TMP(x) spine::String((x).utf8().ptr(), true, false)
 
-// Godot 4.7 moved the RenderingServer array enums (ARRAY_VERTEX, ARRAY_MAX,
-// ARRAY_FLAG_USE_DYNAMIC_UPDATE, ...) into the RenderingServerEnums (RSE) struct.
-// The GDExtension (godot-cpp) and Godot <= 4.6 keep them on RenderingServer (RS).
+// Godot 4.7 split the RenderingServer enums (ArrayType/ArrayFormat/PrimitiveType,
+// ARRAY_*, PRIMITIVE_*) into the RenderingServerEnums (RSE) struct and the types
+// (SurfaceData) into the RenderingServerTypes namespace. The GDExtension (godot-cpp)
+// and Godot <= 4.6 keep them on RenderingServer (RS).
 #if !defined(SPINE_GODOT_EXTENSION) && VERSION_MAJOR > 3 && VERSION_MINOR >= 7
-#define SPINE_RS_ARRAY RSE
+#define SPINE_RS_ENUM RSE
+#define SPINE_RS_TYPE RenderingServerTypes
 #else
-#define SPINE_RS_ARRAY RS
+#define SPINE_RS_ENUM RS
+#define SPINE_RS_TYPE RS
 #endif
 
 #include "SpineSpriteOwner.h"
