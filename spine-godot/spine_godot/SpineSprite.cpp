@@ -66,6 +66,7 @@
 #include "servers/rendering_server.h"
 #endif
 #include "scene/resources/canvas_item_material.h"
+#include "scene/main/scene_tree.h"// get_tree()-> member access; not transitively included in Godot 4.7
 #if VERSION_MINOR > 0 && defined(TOOLS_ENABLED)
 #include "editor/editor_interface.h"
 #endif
