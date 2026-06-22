@@ -35,9 +35,17 @@ fi
 
 godot_cpp_branch=$(echo $godot_branch | cut -d. -f1-2 | cut -d- -f1)
 
+# godot-cpp lags the engine: it has no 4.6/4.7 branch yet (latest is 4.5). When no
+# version-matched branch exists, build against the latest stable godot-cpp *tag*
+# rather than the moving 'master'. A 4.5-built extension loads in 4.6/4.7 via
+# forward-compatibility (compatibility_minimum=4.1), it's reproducible, and it
+# avoids master's breaking changes. The exact-match path auto-selects a real
+# 4.6/4.7 branch once godot-cpp ships one.
+godot_cpp_fallback_tag="godot-4.5-stable"
+
 if ! git ls-remote --exit-code --heads $godot_cpp_repo $godot_cpp_branch > /dev/null 2>&1; then
-    echo "godot-cpp branch '$godot_cpp_branch' not found, falling back to 'master'"
-    godot_cpp_branch="master"
+    echo "godot-cpp branch '$godot_cpp_branch' not found, falling back to tag '$godot_cpp_fallback_tag'"
+    godot_cpp_branch="$godot_cpp_fallback_tag"
 fi
 
 cpus=2
