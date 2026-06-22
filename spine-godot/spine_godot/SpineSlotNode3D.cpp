@@ -27,9 +27,10 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
+#include "SpineCommon.h"
 #include "SpineSlotNode3D.h"
 
-#ifndef _3D_DISABLED
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
 void SpineSlotNode3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_world_transforms_changed", "spine_sprite"), &SpineSlotNode3D::on_world_transforms_changed);

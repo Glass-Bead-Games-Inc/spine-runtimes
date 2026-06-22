@@ -31,9 +31,9 @@
 
 #ifndef SPINE_GODOT_EXTENSION
 #include "SpineSprite.h"
-#ifndef _3D_DISABLED
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 #include "SpineSprite3D.h"
-#endif// _3D_DISABLED
+#endif// 3D (Godot 4.x only)
 #include "SpineSpriteOwner.h"
 #include "scene/animation/animation_player.h"
 #include "scene/resources/animation.h"
@@ -68,9 +68,9 @@ protected:
 	// Resolves a Godot Object to a SpineSpriteOwner without RTTI (Godot is built with -fno-rtti).
 	static SpineSpriteOwner *resolve_owner(Object *o) {
 		if (SpineSprite *s = Object::cast_to<SpineSprite>(o)) return s;
-#ifndef _3D_DISABLED
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 		if (SpineSprite3D *s3 = Object::cast_to<SpineSprite3D>(o)) return s3;
-#endif// _3D_DISABLED
+#endif// 3D (Godot 4.x only)
 		return nullptr;
 	}
 

@@ -29,7 +29,9 @@
 
 #pragma once
 
-#ifndef _3D_DISABLED
+#include "SpineCommon.h"
+
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
 #include "SpineCommon.h"
 #include "SpineSprite3D.h"

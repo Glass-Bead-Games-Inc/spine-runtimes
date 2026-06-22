@@ -27,11 +27,18 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-// Fix #15: skip all 3D content when a Godot module is built with disable_3d=yes
-// (the engine defines _3D_DISABLED and GeometryInstance3D / 3D rendering APIs are
-// unavailable). In the GDExtension build _3D_DISABLED is never defined, so this is
-// a no-op there (3D still compiles), which is correct.
-#ifndef _3D_DISABLED
+#include "SpineCommon.h"
+
+// This 3D node is intentionally Godot-4.x-only (relies on GeometryInstance3D and
+// scene/3d APIs absent in Godot 3.x). SpineCommon.h provides VERSION_MAJOR, so the
+// guard below excludes all content from the Godot 3.x module build entirely.
+//
+// Fix #15: additionally skip all 3D content when a Godot 4.x module is built with
+// disable_3d=yes (the engine defines _3D_DISABLED and GeometryInstance3D / 3D
+// rendering APIs are unavailable). In the GDExtension build VERSION_MAJOR==4 and
+// _3D_DISABLED is never defined, so the 3D code still compiles there, which is
+// correct.
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
 #include "SpineSprite3D.h"
 #include "SpineSlotNode3D.h"
