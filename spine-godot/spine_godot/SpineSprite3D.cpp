@@ -59,6 +59,7 @@
 #include "scene/resources/shader.h"
 #include "scene/resources/material.h"// declares ShaderMaterial (no separate shader_material.h in 4.x)
 #include "scene/resources/mesh.h"
+#include "core/config/engine.h"// Engine::get_singleton(); not transitively included in Godot 4.7
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
 #else
@@ -910,9 +911,9 @@ void SpineSprite3D::build_meshes() {
 
 			uint8_t *vertex_write = sc.vertex_buffer.ptrw();
 			uint8_t *attribute_write = sc.attribute_buffer.ptrw();
-			const uint32_t v_off = sc.surface_offsets[RS::ARRAY_VERTEX];
-			const uint32_t c_off = sc.surface_offsets[RS::ARRAY_COLOR];
-			const uint32_t uv_off = sc.surface_offsets[RS::ARRAY_TEX_UV];
+			const uint32_t v_off = sc.surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX];
+			const uint32_t c_off = sc.surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR];
+			const uint32_t uv_off = sc.surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV];
 
 			for (int v = 0; v < vc; v++) {
 				// Positions: only the ARRAY_VERTEX slot changes. For shaded surfaces the
@@ -1006,22 +1007,25 @@ void SpineSprite3D::build_meshes() {
 		sc.material = ls.material;
 
 #ifdef SPINE_GODOT_EXTENSION
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
-														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, SPINE_RS_ENUM::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
+														  SPINE_RS_ENUM::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		// Capture the surface layout + buffers for subsequent fast-path region updates.
 		Dictionary surface = RS::get_singleton()->mesh_get_surface(mesh, s);
-		RS::ArrayFormat surface_format = (RS::ArrayFormat) static_cast<int64_t>(surface["format"]);
-		sc.surface_offsets[RS::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_VERTEX);
-		sc.surface_offsets[RS::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_COLOR);
-		sc.surface_offsets[RS::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices, RS::ARRAY_TEX_UV);
+		SPINE_RS_ENUM::ArrayFormat surface_format = (SPINE_RS_ENUM::ArrayFormat) static_cast<int64_t>(surface["format"]);
+		sc.surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices,
+																											  SPINE_RS_ENUM::ARRAY_VERTEX);
+		sc.surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices,
+																											 SPINE_RS_ENUM::ARRAY_COLOR);
+		sc.surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, sc.num_vertices,
+																											  SPINE_RS_ENUM::ARRAY_TEX_UV);
 		sc.vertex_stride = RS::get_singleton()->mesh_surface_get_format_vertex_stride(surface_format, sc.num_vertices);
 		sc.attribute_stride = RS::get_singleton()->mesh_surface_get_format_attribute_stride(surface_format, sc.num_vertices);
 		sc.vertex_buffer = surface["vertex_data"];
 		sc.attribute_buffer = surface["attribute_data"];
 #else
-		RS::SurfaceData surface;
+		SPINE_RS_TYPE::SurfaceData surface;
 		uint32_t skin_stride = 0;
-		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (RS::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
+		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (SPINE_RS_ENUM::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
 																  TypedArray<Array>(), Dictionary(),
 																  Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		RS::get_singleton()->mesh_add_surface(mesh, surface);
@@ -1319,8 +1323,8 @@ void SpineSprite3D::build_debug_mesh() {
 		tri_arrays[Mesh::ARRAY_COLOR] = tri_colors;
 		tri_arrays[Mesh::ARRAY_INDEX] = tri_indices;
 
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, tri_arrays, Array(), Dictionary(),
-														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, SPINE_RS_ENUM::PRIMITIVE_TRIANGLES, tri_arrays, Array(), Dictionary(),
+														  SPINE_RS_ENUM::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
 		if (sc > 0) {
@@ -1335,8 +1339,8 @@ void SpineSprite3D::build_debug_mesh() {
 		line_arrays[Mesh::ARRAY_VERTEX] = dbg_positions;
 		line_arrays[Mesh::ARRAY_COLOR] = dbg_colors;
 
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, line_arrays, Array(), Dictionary(),
-														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, SPINE_RS_ENUM::PRIMITIVE_LINES, line_arrays, Array(), Dictionary(),
+														  SPINE_RS_ENUM::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
 		if (sc > 0) {

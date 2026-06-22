@@ -40,6 +40,13 @@
 #include <godot_cpp/classes/canvas_item_material.hpp>
 #else
 #include "scene/2d/node_2d.h"
+// RS (RenderingServer) is used in inline methods below; Godot 4.7 no longer
+// pulls it in transitively, so include it explicitly.
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
+#include "servers/rendering/rendering_server.h"
+#else
+#include "servers/rendering_server.h"
+#endif
 #endif
 
 class SpineSlotNode;
@@ -76,7 +83,7 @@ protected:
 
 #if VERSION_MAJOR > 3
 	RID mesh;
-	uint32_t surface_offsets[RS::ARRAY_MAX];
+	uint32_t surface_offsets[SPINE_RS_ENUM::ARRAY_MAX];
 	int num_vertices;
 	int num_indices;
 	PackedByteArray vertex_buffer;

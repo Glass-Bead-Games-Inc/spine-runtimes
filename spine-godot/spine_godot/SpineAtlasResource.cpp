@@ -323,14 +323,13 @@ Error SpineAtlasResource::load_from_file(const String &path) {
 #endif
 
 #if VERSION_MAJOR > 3
-	JSON *json = memnew(JSON);
+	Ref<JSON> json;
+	json.instantiate();
 	error = json->parse(json_string);
 	if (error != OK) {
-		memdelete(json);
 		return error;
 	}
 	Variant result = json->get_data();
-	memdelete(json);
 #else
 	String error_string;
 	int error_line;
@@ -380,10 +379,10 @@ Error SpineAtlasResource::save_to_file(const String &path) {
 	content["normal_texture_prefix"] = normal_map_prefix;
 	content["specular_texture_prefix"] = specular_map_prefix;
 #if VERSION_MAJOR > 3
-	JSON *json = memnew(JSON);
+	Ref<JSON> json;
+	json.instantiate();
 	file->store_string(json->stringify(content));
 	file->flush();
-	memdelete(json);
 #else
 	file->store_string(JSON::print(content));
 	file->close();

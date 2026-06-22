@@ -38,6 +38,7 @@
 #else
 #include "core/engine.h"
 #endif
+#include "scene/main/scene_tree.h"// get_tree()-> member access; not transitively included in Godot 4.7
 #endif
 
 void SpineBoneNode::_bind_methods() {

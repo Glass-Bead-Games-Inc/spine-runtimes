@@ -66,6 +66,7 @@
 #include "servers/rendering_server.h"
 #endif
 #include "scene/resources/canvas_item_material.h"
+#include "scene/main/scene_tree.h"// get_tree()-> member access; not transitively included in Godot 4.7
 #if VERSION_MINOR > 0 && defined(TOOLS_ENABLED)
 #include "editor/editor_interface.h"
 #endif
@@ -230,13 +231,16 @@ void SpineMesh2D::update_mesh(const PackedVector2Array &vertices, const PackedVe
 		arrays[Mesh::ARRAY_TEX_UV] = uvs;
 		arrays[Mesh::ARRAY_COLOR] = colors;
 		arrays[Mesh::ARRAY_INDEX] = indices;
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PrimitiveType::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
-														  RS::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, SPINE_RS_ENUM::PrimitiveType::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
+														  SPINE_RS_ENUM::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		Dictionary surface = RS::get_singleton()->mesh_get_surface(mesh, 0);
-		RS::ArrayFormat surface_format = (RS::ArrayFormat) static_cast<int64_t>(surface["format"]);
-		surface_offsets[RS::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_VERTEX);
-		surface_offsets[RS::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_COLOR);
-		surface_offsets[RS::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_TEX_UV);
+		SPINE_RS_ENUM::ArrayFormat surface_format = (SPINE_RS_ENUM::ArrayFormat) static_cast<int64_t>(surface["format"]);
+		surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
+																										   SPINE_RS_ENUM::ARRAY_VERTEX);
+		surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
+																										  SPINE_RS_ENUM::ARRAY_COLOR);
+		surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
+																										   SPINE_RS_ENUM::ARRAY_TEX_UV);
 		vertex_stride = RS::get_singleton()->mesh_surface_get_format_vertex_stride(surface_format, vertices.size());
 		attribute_stride = RS::get_singleton()->mesh_surface_get_format_attribute_stride(surface_format, vertices.size());
 		vertex_buffer = surface["vertex_data"];
@@ -261,9 +265,9 @@ void SpineMesh2D::update_mesh(const PackedVector2Array &vertices, const PackedVe
 			}
 
 			float uv[2] = {(float) uvs[i].x, (float) uvs[i].y};
-			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RS::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_COLOR]], color, 4);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_TEX_UV]], uv, 8);
+			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR]], color, 4);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV]], uv, 8);
 		}
 		RS::get_singleton()->mesh_surface_update_vertex_region(mesh, 0, 0, vertex_buffer);
 		RS::get_singleton()->mesh_surface_update_attribute_region(mesh, 0, 0, attribute_buffer);
@@ -292,9 +296,9 @@ void SpineMesh2D::update_mesh(const Vector<Point2> &vertices, const Vector<Point
 		arrays[Mesh::ARRAY_TEX_UV] = uvs;
 		arrays[Mesh::ARRAY_COLOR] = colors;
 		arrays[Mesh::ARRAY_INDEX] = indices;
-		RS::SurfaceData surface;
+		SPINE_RS_TYPE::SurfaceData surface;
 		uint32_t skin_stride;
-		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (RS::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
+		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (SPINE_RS_ENUM::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
 																  TypedArray<Array>(), Dictionary(),
 																  Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		RS::get_singleton()->mesh_add_surface(mesh, surface);
@@ -327,9 +331,9 @@ void SpineMesh2D::update_mesh(const Vector<Point2> &vertices, const Vector<Point
 			}
 
 			float uv[2] = {(float) uvs[i].x, (float) uvs[i].y};
-			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RS::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_COLOR]], color, 4);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_TEX_UV]], uv, 8);
+			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR]], color, 4);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV]], uv, 8);
 		}
 		RS::get_singleton()->mesh_surface_update_vertex_region(mesh, 0, 0, vertex_buffer);
 		RS::get_singleton()->mesh_surface_update_attribute_region(mesh, 0, 0, attribute_buffer);
