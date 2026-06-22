@@ -60,7 +60,8 @@ protected:
 	void update_transform(SpineSprite3D *sprite);
 
 public:
-	SpineSlotNode3D() : slot_index(-1) {}
+	SpineSlotNode3D() : slot_index(-1) {
+	}
 
 	void set_slot_name(const String &_slot_name);
 	String get_slot_name();
@@ -82,4 +83,4 @@ public:
 	void set_screen_material(Ref<Material> material);
 };
 
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED

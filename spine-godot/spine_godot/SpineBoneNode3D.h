@@ -55,7 +55,8 @@ protected:
 	void update_transform(SpineSprite3D *sprite);
 
 public:
-	SpineBoneNode3D() : bone_index(-1) {}
+	SpineBoneNode3D() : bone_index(-1) {
+	}
 
 	void set_bone_name(const String &_bone_name);
 	String get_bone_name();
@@ -65,4 +66,4 @@ public:
 	}
 };
 
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED

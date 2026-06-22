@@ -48,10 +48,10 @@
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/templates/hash_map.hpp>
 #else
-#include "scene/3d/visual_instance_3d.h" // declares GeometryInstance3D
+#include "scene/3d/visual_instance_3d.h"// declares GeometryInstance3D
 #include "core/templates/hash_map.h"
 #include "core/templates/vector.h"
-#include "scene/resources/material.h" // declares Material + ShaderMaterial (no separate shader_material.h in 4.x)
+#include "scene/resources/material.h"// declares Material + ShaderMaterial (no separate shader_material.h in 4.x)
 // Fix #10: SurfaceCache below references RS::ARRAY_MAX and the region-update layout.
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
@@ -83,7 +83,7 @@ protected:
 	spine::SkeletonClipping *skeleton_clipper;
 	bool modified_bones;
 
-	RID mesh; // owned RS mesh, created in Task 2
+	RID mesh;// owned RS mesh, created in Task 2
 
 	// Task 2: rendering parameters (exposed as properties in Task 3)
 	float pixel_size;
@@ -116,7 +116,8 @@ protected:
 	Color debug_root_color;
 	bool debug_bones;
 	Color debug_bones_color;
-	float debug_bones_thickness; // Controls kite width for the bones debug overlay (bones are rendered as filled TRIANGLES; other debug categories remain 1px LINES)
+	float
+		debug_bones_thickness;// Controls kite width for the bones debug overlay (bones are rendered as filled TRIANGLES; other debug categories remain 1px LINES)
 	bool debug_regions;
 	Color debug_regions_color;
 	bool debug_meshes;
@@ -128,7 +129,7 @@ protected:
 	bool debug_clipping;
 	Color debug_clipping_color;
 
-	Ref<ShaderMaterial> debug_lines_material; // per-sprite debug lines material (billboard_mode + priority 127)
+	Ref<ShaderMaterial> debug_lines_material;// per-sprite debug lines material (billboard_mode + priority 127)
 
 	// Task 2: scratch buffers for mesh building
 #ifdef SPINE_GODOT_EXTENSION
@@ -159,13 +160,13 @@ protected:
 	struct SurfaceCache {
 		int num_vertices = 0;
 		int num_indices = 0;
-		bool shaded = false; // vertex layout (normal/tangent present) was built shaded
+		bool shaded = false;// vertex layout (normal/tangent present) was built shaded
 #ifdef SPINE_GODOT_EXTENSION
-		PackedInt32Array indices; // last-frame index contents, for topology compare
+		PackedInt32Array indices;// last-frame index contents, for topology compare
 #else
 		Vector<int> indices;
 #endif
-		RID material; // material RID assigned to the surface (RID() if none)
+		RID material;// material RID assigned to the surface (RID() if none)
 		// Surface buffer layout for region updates (mirrors SpineMesh2D fields).
 		uint32_t surface_offsets[RS::ARRAY_MAX] = {};
 		uint32_t vertex_stride = 0;
@@ -174,8 +175,8 @@ protected:
 		PackedByteArray vertex_buffer;
 		PackedByteArray attribute_buffer;
 	};
-	Vector<SurfaceCache> surface_cache; // one entry per non-debug surface built last frame
-	bool debug_active_last_frame; // whether the debug overlay produced a surface last frame
+	Vector<SurfaceCache> surface_cache;// one entry per non-debug surface built last frame
+	bool debug_active_last_frame;      // whether the debug overlay produced a surface last frame
 
 	static void _bind_methods();
 	void _notification(int what);
@@ -188,7 +189,7 @@ protected:
 	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
 
 	void build_meshes();
-	void build_debug_mesh(); // Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
+	void build_debug_mesh();// Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
 
 public:
 	SpineSprite3D();
@@ -203,7 +204,7 @@ public:
 	Node *owner_as_node() override {
 		return this;
 	}
-	Ref<SpineAnimationState> get_animation_state() override; // SpineSpriteOwner
+	Ref<SpineAnimationState> get_animation_state() override;// SpineSpriteOwner
 	void on_skeleton_data_changed();
 	void update_skeleton(float delta);
 
@@ -246,40 +247,100 @@ public:
 	void set_global_bone_transform_3d(const String &bone_name, Transform3D xform);
 
 	// Task 11: debug overlay getters/setters (parity with SpineSprite 2D)
-	bool get_debug_root() { return debug_root; }
-	void set_debug_root(bool v) { debug_root = v; }
-	Color get_debug_root_color() { return debug_root_color; }
-	void set_debug_root_color(const Color &v) { debug_root_color = v; }
-	bool get_debug_bones() { return debug_bones; }
-	void set_debug_bones(bool v) { debug_bones = v; }
-	Color get_debug_bones_color() { return debug_bones_color; }
-	void set_debug_bones_color(const Color &v) { debug_bones_color = v; }
-	float get_debug_bones_thickness() { return debug_bones_thickness; }
-	void set_debug_bones_thickness(float v) { debug_bones_thickness = v; }
-	bool get_debug_regions() { return debug_regions; }
-	void set_debug_regions(bool v) { debug_regions = v; }
-	Color get_debug_regions_color() { return debug_regions_color; }
-	void set_debug_regions_color(const Color &v) { debug_regions_color = v; }
-	bool get_debug_meshes() { return debug_meshes; }
-	void set_debug_meshes(bool v) { debug_meshes = v; }
-	Color get_debug_meshes_color() { return debug_meshes_color; }
-	void set_debug_meshes_color(const Color &v) { debug_meshes_color = v; }
-	bool get_debug_bounding_boxes() { return debug_bounding_boxes; }
-	void set_debug_bounding_boxes(bool v) { debug_bounding_boxes = v; }
-	Color get_debug_bounding_boxes_color() { return debug_bounding_boxes_color; }
-	void set_debug_bounding_boxes_color(const Color &v) { debug_bounding_boxes_color = v; }
-	bool get_debug_paths() { return debug_paths; }
-	void set_debug_paths(bool v) { debug_paths = v; }
-	Color get_debug_paths_color() { return debug_paths_color; }
-	void set_debug_paths_color(const Color &v) { debug_paths_color = v; }
-	bool get_debug_clipping() { return debug_clipping; }
-	void set_debug_clipping(bool v) { debug_clipping = v; }
-	Color get_debug_clipping_color() { return debug_clipping_color; }
-	void set_debug_clipping_color(const Color &v) { debug_clipping_color = v; }
+	bool get_debug_root() {
+		return debug_root;
+	}
+	void set_debug_root(bool v) {
+		debug_root = v;
+	}
+	Color get_debug_root_color() {
+		return debug_root_color;
+	}
+	void set_debug_root_color(const Color &v) {
+		debug_root_color = v;
+	}
+	bool get_debug_bones() {
+		return debug_bones;
+	}
+	void set_debug_bones(bool v) {
+		debug_bones = v;
+	}
+	Color get_debug_bones_color() {
+		return debug_bones_color;
+	}
+	void set_debug_bones_color(const Color &v) {
+		debug_bones_color = v;
+	}
+	float get_debug_bones_thickness() {
+		return debug_bones_thickness;
+	}
+	void set_debug_bones_thickness(float v) {
+		debug_bones_thickness = v;
+	}
+	bool get_debug_regions() {
+		return debug_regions;
+	}
+	void set_debug_regions(bool v) {
+		debug_regions = v;
+	}
+	Color get_debug_regions_color() {
+		return debug_regions_color;
+	}
+	void set_debug_regions_color(const Color &v) {
+		debug_regions_color = v;
+	}
+	bool get_debug_meshes() {
+		return debug_meshes;
+	}
+	void set_debug_meshes(bool v) {
+		debug_meshes = v;
+	}
+	Color get_debug_meshes_color() {
+		return debug_meshes_color;
+	}
+	void set_debug_meshes_color(const Color &v) {
+		debug_meshes_color = v;
+	}
+	bool get_debug_bounding_boxes() {
+		return debug_bounding_boxes;
+	}
+	void set_debug_bounding_boxes(bool v) {
+		debug_bounding_boxes = v;
+	}
+	Color get_debug_bounding_boxes_color() {
+		return debug_bounding_boxes_color;
+	}
+	void set_debug_bounding_boxes_color(const Color &v) {
+		debug_bounding_boxes_color = v;
+	}
+	bool get_debug_paths() {
+		return debug_paths;
+	}
+	void set_debug_paths(bool v) {
+		debug_paths = v;
+	}
+	Color get_debug_paths_color() {
+		return debug_paths_color;
+	}
+	void set_debug_paths_color(const Color &v) {
+		debug_paths_color = v;
+	}
+	bool get_debug_clipping() {
+		return debug_clipping;
+	}
+	void set_debug_clipping(bool v) {
+		debug_clipping = v;
+	}
+	Color get_debug_clipping_color() {
+		return debug_clipping_color;
+	}
+	void set_debug_clipping_color(const Color &v) {
+		debug_clipping_color = v;
+	}
 
 	static void clear_statics();
 };
 
 VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)
 
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED

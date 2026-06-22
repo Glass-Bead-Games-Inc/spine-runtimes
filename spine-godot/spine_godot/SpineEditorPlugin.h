@@ -33,7 +33,7 @@
 #include "SpineSprite.h"
 #ifndef _3D_DISABLED
 #include "SpineSprite3D.h"
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 #include "SpineSpriteOwner.h"
 #if VERSION_MAJOR > 3
 #ifdef SPINE_GODOT_EXTENSION

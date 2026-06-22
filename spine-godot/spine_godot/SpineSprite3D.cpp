@@ -50,7 +50,7 @@
 #include <godot_cpp/variant/variant.hpp>
 #else
 #include "scene/resources/shader.h"
-#include "scene/resources/material.h" // declares ShaderMaterial (no separate shader_material.h in 4.x)
+#include "scene/resources/material.h"// declares ShaderMaterial (no separate shader_material.h in 4.x)
 #include "scene/resources/mesh.h"
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
@@ -79,73 +79,80 @@ private:
 		// Blend mode -> render_mode token
 		String rm;
 		switch (blend) {
-			case spine::BlendMode_Additive: rm = "blend_add"; break;
-			case spine::BlendMode_Multiply: rm = "blend_mul"; break;
+			case spine::BlendMode_Additive:
+				rm = "blend_add";
+				break;
+			case spine::BlendMode_Multiply:
+				rm = "blend_mul";
+				break;
 			// F9: Spine Screen blend is intentionally unsupported in 3D; it maps to
 			// blend_mix and therefore renders as Normal. A custom screen_material can
 			// be supplied for correct Screen rendering. This is by design, not a bug.
-			default: rm = "blend_mix"; break; // Normal (Screen unsupported -> treat as normal)
+			default:
+				rm = "blend_mix";
+				break;// Normal (Screen unsupported -> treat as normal)
 		}
 
 		// Vertex shader (same for shaded and unshaded)
-		String vertex_fn =
-			"void vertex() {\n"
-			"    if (billboard_mode == 1) {\n"
-			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			"            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
-			"            MODEL_MATRIX[3]);\n"
-			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			"    } else if (billboard_mode == 2) {\n"
-			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			"            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
-			"            vec4(0.0,1.0,0.0,0.0),\n"
-			"            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
-			"            MODEL_MATRIX[3]);\n"
-			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			"    }\n"
-			"}\n";
+		String vertex_fn = "void vertex() {\n"
+						   "    if (billboard_mode == 1) {\n"
+						   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+						   "            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+						   "            MODEL_MATRIX[3]);\n"
+						   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+						   "    } else if (billboard_mode == 2) {\n"
+						   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+						   "            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+						   "            vec4(0.0,1.0,0.0,0.0),\n"
+						   "            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+						   "            MODEL_MATRIX[3]);\n"
+						   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+						   "    }\n"
+						   "}\n";
 
 		if (!shaded) {
 			// Unshaded variant: flat rendering, no lighting, no shadow participation.
-			String frag = pma
-					? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
-					: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
+			String frag = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
+							  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") +
-				   "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
-				   "\n"
-				   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
-				   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-				   "\n" +
-				   vertex_fn +
-				   "\n"
-				   "void fragment() {\n"
-				   "    " + frag + "\n"
-				   "}\n";
+			return String("shader_type spatial;\n") + "render_mode " + rm +
+				", cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
+				"\n"
+				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+				"\n" +
+				vertex_fn +
+				"\n"
+				"void fragment() {\n"
+				"    " +
+				frag +
+				"\n"
+				"}\n";
 		} else {
 			// Shaded variant: participates in lighting and shadows.
 			// PMA handling same as unshaded; normal/specular maps are optional.
-			String albedo_alpha = pma
-					? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
-					: "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
+			String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
+									  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") +
-				   "render_mode " + rm + ", cull_disabled, depth_draw_opaque;\n"
-				   "\n"
-				   "uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
-				   "uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap;\n"
-				   "uniform sampler2D specular_tex : source_color, filter_linear_mipmap;\n"
-				   "uniform bool use_normal_tex = false;\n"
-				   "uniform bool use_specular_tex = false;\n"
-				   "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-				   "\n" +
-				   vertex_fn +
-				   "\n"
-				   "void fragment() {\n"
-				   "    " + albedo_alpha + "\n"
-				   "    if (use_normal_tex) NORMAL_MAP = texture(normal_tex, UV).rgb;\n"
-				   "    if (use_specular_tex) SPECULAR = texture(specular_tex, UV).r;\n"
-				   "}\n";
+			return String("shader_type spatial;\n") + "render_mode " + rm +
+				", cull_disabled, depth_draw_opaque;\n"
+				"\n"
+				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				"uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap;\n"
+				"uniform sampler2D specular_tex : source_color, filter_linear_mipmap;\n"
+				"uniform bool use_normal_tex = false;\n"
+				"uniform bool use_specular_tex = false;\n"
+				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+				"\n" +
+				vertex_fn +
+				"\n"
+				"void fragment() {\n"
+				"    " +
+				albedo_alpha +
+				"\n"
+				"    if (use_normal_tex) NORMAL_MAP = texture(normal_tex, UV).rgb;\n"
+				"    if (use_specular_tex) SPECULAR = texture(specular_tex, UV).r;\n"
+				"}\n";
 		}
 	}
 
@@ -165,32 +172,31 @@ private:
 	// Includes the same billboard vertex() transform as the main render shader so that
 	// on billboarded sprites the debug lines track the rendered geometry.
 	static String build_lines_shader_source() {
-		return String(
-			"shader_type spatial;\n"
-			"render_mode unshaded, cull_disabled, depth_test_disabled;\n"
-			"\n"
-			"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-			"\n"
-			"void vertex() {\n"
-			"    if (billboard_mode == 1) {\n"
-			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			"            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
-			"            MODEL_MATRIX[3]);\n"
-			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			"    } else if (billboard_mode == 2) {\n"
-			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
-			"            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
-			"            vec4(0.0,1.0,0.0,0.0),\n"
-			"            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
-			"            MODEL_MATRIX[3]);\n"
-			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-			"    }\n"
-			"}\n"
-			"\n"
-			"void fragment() {\n"
-			"    ALBEDO = COLOR.rgb;\n"
-			"    ALPHA = COLOR.a;\n"
-			"}\n");
+		return String("shader_type spatial;\n"
+					  "render_mode unshaded, cull_disabled, depth_test_disabled;\n"
+					  "\n"
+					  "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+					  "\n"
+					  "void vertex() {\n"
+					  "    if (billboard_mode == 1) {\n"
+					  "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+					  "            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+					  "            MODEL_MATRIX[3]);\n"
+					  "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+					  "    } else if (billboard_mode == 2) {\n"
+					  "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+					  "            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+					  "            vec4(0.0,1.0,0.0,0.0),\n"
+					  "            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+					  "            MODEL_MATRIX[3]);\n"
+					  "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+					  "    }\n"
+					  "}\n"
+					  "\n"
+					  "void fragment() {\n"
+					  "    ALBEDO = COLOR.rgb;\n"
+					  "    ALPHA = COLOR.a;\n"
+					  "}\n");
 	}
 
 	static Ref<Shader> make_lines_shader() {
@@ -332,9 +338,11 @@ void SpineSprite3D::_bind_methods() {
 						  PropertyInfo(Variant::OBJECT, "animation_state", PROPERTY_HINT_TYPE_STRING, "SpineAnimationState"),
 						  PropertyInfo(Variant::OBJECT, "track_entry", PROPERTY_HINT_TYPE_STRING, "SpineTrackEntry"),
 						  PropertyInfo(Variant::OBJECT, "event", PROPERTY_HINT_TYPE_STRING, "SpineEvent")));
-	ADD_SIGNAL(MethodInfo("before_animation_state_update", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
+	ADD_SIGNAL(
+		MethodInfo("before_animation_state_update", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
 	ADD_SIGNAL(MethodInfo("before_animation_state_apply", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
-	ADD_SIGNAL(MethodInfo("before_world_transforms_change", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
+	ADD_SIGNAL(
+		MethodInfo("before_world_transforms_change", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
 	ADD_SIGNAL(MethodInfo("world_transforms_changed", PropertyInfo(Variant::OBJECT, "spine_sprite", PROPERTY_HINT_TYPE_STRING, "SpineSprite3D")));
 	ADD_SIGNAL(MethodInfo("_internal_spine_objects_invalidated"));
 
@@ -378,16 +386,13 @@ void SpineSprite3D::_bind_methods() {
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false),
-	  preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false), preview_skin("Default"),
+	  preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
 	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
-	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)),
-	  debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)), debug_bones_thickness(5.0f),
-	  debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)),
-	  debug_meshes(false), debug_meshes_color(Color(0, 0, 1, 0.5f)),
-	  debug_bounding_boxes(false), debug_bounding_boxes_color(Color(0, 1, 0, 0.5f)),
-	  debug_paths(false), debug_paths_color(Color::hex(0xff7f0077)),
-	  debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)),
+	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)), debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)),
+	  debug_bones_thickness(5.0f), debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)), debug_meshes(false),
+	  debug_meshes_color(Color(0, 0, 1, 0.5f)), debug_bounding_boxes(false), debug_bounding_boxes_color(Color(0, 1, 0, 0.5f)), debug_paths(false),
+	  debug_paths_color(Color::hex(0xff7f0077)), debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)),
 	  debug_active_last_frame(false) {
 	scratch_world_verts.ensureCapacity(1200);
 }
@@ -517,9 +522,9 @@ void SpineSprite3D::update_skeleton(float delta) {
 	modified_bones = false;
 	emit_signal(SNAME("world_transforms_changed"), this);
 	if (modified_bones) skeleton->update_world_transform(SpineConstant::Physics_Update);
-	if (!is_visible_in_tree()) return; // skip only the GPU rebuild while hidden
+	if (!is_visible_in_tree()) return;// skip only the GPU rebuild while hidden
 	build_meshes();
-	build_debug_mesh(); // Task 11: rebuild debug line overlay
+	build_debug_mesh();// Task 11: rebuild debug line overlay
 }
 
 // Fix #10: a single fully-resolved CPU surface produced by build_meshes()'s slot
@@ -538,7 +543,7 @@ struct SpineSprite3DLocalSurface {
 	Vector<int> indices;
 #endif
 	bool shaded = false;
-	RID material; // resolved material RID for this surface (RID() if none assigned)
+	RID material;// resolved material RID for this surface (RID() if none assigned)
 };
 
 void SpineSprite3D::build_meshes() {
@@ -610,19 +615,35 @@ void SpineSprite3D::build_meshes() {
 		Ref<Material> custom_mat;
 		if (current_slot_node) {
 			switch (current_blend) {
-				case spine::BlendMode_Normal:   custom_mat = current_slot_node->get_normal_material(); break;
-				case spine::BlendMode_Additive: custom_mat = current_slot_node->get_additive_material(); break;
-				case spine::BlendMode_Multiply: custom_mat = current_slot_node->get_multiply_material(); break;
-				default: custom_mat = current_slot_node->get_screen_material(); break;
+				case spine::BlendMode_Normal:
+					custom_mat = current_slot_node->get_normal_material();
+					break;
+				case spine::BlendMode_Additive:
+					custom_mat = current_slot_node->get_additive_material();
+					break;
+				case spine::BlendMode_Multiply:
+					custom_mat = current_slot_node->get_multiply_material();
+					break;
+				default:
+					custom_mat = current_slot_node->get_screen_material();
+					break;
 			}
 		}
 		// Task 8: fall back to sprite-level per-blend-mode custom material.
 		if (!custom_mat.is_valid()) {
 			switch (current_blend) {
-				case spine::BlendMode_Normal:   custom_mat = normal_material; break;
-				case spine::BlendMode_Additive: custom_mat = additive_material; break;
-				case spine::BlendMode_Multiply: custom_mat = multiply_material; break;
-				default: custom_mat = screen_material; break; // Screen (rare/none in practice)
+				case spine::BlendMode_Normal:
+					custom_mat = normal_material;
+					break;
+				case spine::BlendMode_Additive:
+					custom_mat = additive_material;
+					break;
+				case spine::BlendMode_Multiply:
+					custom_mat = multiply_material;
+					break;
+				default:
+					custom_mat = screen_material;
+					break;// Screen (rare/none in practice)
 			}
 		}
 
@@ -639,8 +660,8 @@ void SpineSprite3D::build_meshes() {
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
-			uint64_t variant_bits = (uint64_t)((int)current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
-			uint64_t tex_id = (uint64_t)current_ro->texture->get_rid().get_id();
+			uint64_t variant_bits = (uint64_t) ((int) current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
+			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
 			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
 
 			Ref<ShaderMaterial> mat;
@@ -693,8 +714,7 @@ void SpineSprite3D::build_meshes() {
 
 		spine::Color sk_color = sk->getColor();
 		spine::Color slot_color = slot->getAppliedPose().getColor();
-		spine::Color tint(sk_color.r * slot_color.r, sk_color.g * slot_color.g,
-				sk_color.b * slot_color.b, sk_color.a * slot_color.a);
+		spine::Color tint(sk_color.r * slot_color.r, sk_color.g * slot_color.g, sk_color.b * slot_color.b, sk_color.a * slot_color.a);
 
 		// Task 4: get blend mode from slot data
 		spine::BlendMode slot_blend = slot->getData().getBlendMode();
@@ -721,8 +741,12 @@ void SpineSprite3D::build_meshes() {
 			static spine::Array<unsigned short> quad_idx;
 			if (quad_idx.size() == 0) {
 				quad_idx.setSize(6, 0);
-				quad_idx[0] = 0; quad_idx[1] = 1; quad_idx[2] = 2;
-				quad_idx[3] = 2; quad_idx[4] = 3; quad_idx[5] = 0;
+				quad_idx[0] = 0;
+				quad_idx[1] = 1;
+				quad_idx[2] = 2;
+				quad_idx[3] = 2;
+				quad_idx[4] = 3;
+				quad_idx[5] = 0;
 			}
 			indices = &quad_idx;
 
@@ -798,7 +822,7 @@ void SpineSprite3D::build_meshes() {
 		float z = -((float) i) * z_spacing;
 
 		float sx = flip_h ? -pixel_size : pixel_size;
-		float sy = flip_v ? pixel_size : -pixel_size; // base is -pixel_size (Y-flip); flip_v cancels it
+		float sy = flip_v ? pixel_size : -pixel_size;// base is -pixel_size (Y-flip); flip_v cancels it
 
 		for (int v = 0; v < num_verts; v++) {
 			float x = world_verts->buffer()[v * 2] * sx;
@@ -829,7 +853,7 @@ void SpineSprite3D::build_meshes() {
 	}
 	skeleton_clipper->clipEnd();
 
-	flush(); // flush final surface
+	flush();// flush final surface
 
 	// Task 5 / F12: when billboarding, the AABB becomes a cube centered on the MODEL
 	// ORIGIN (not the geometry centroid) so rotation about the origin never causes
@@ -850,8 +874,8 @@ void SpineSprite3D::build_meshes() {
 	// SLOW PATH so the freshly-created mesh has exactly the right surface set for
 	// build_debug_mesh to append to (and any stale debug surface is gone). This is the
 	// simplest provably-correct rule.
-	const bool debug_active_this_frame = debug_root || debug_bones || debug_regions ||
-										 debug_meshes || debug_bounding_boxes || debug_paths || debug_clipping;
+	const bool debug_active_this_frame = debug_root || debug_bones || debug_regions || debug_meshes || debug_bounding_boxes || debug_paths ||
+		debug_clipping;
 	const bool debug_forces_slow = debug_active_this_frame || debug_active_last_frame;
 
 	// Decide FAST PATH: existing mesh, no debug involvement, and per-surface topology
@@ -862,8 +886,8 @@ void SpineSprite3D::build_meshes() {
 		for (int s = 0; s < surface_count; s++) {
 			const SpineSprite3DLocalSurface &ls = local_surfaces[s];
 			const SurfaceCache &sc = surface_cache[s];
-			if (sc.num_vertices != (int) ls.positions.size() || sc.num_indices != (int) ls.indices.size() ||
-				sc.shaded != ls.shaded || sc.material != ls.material || sc.indices != ls.indices) {
+			if (sc.num_vertices != (int) ls.positions.size() || sc.num_indices != (int) ls.indices.size() || sc.shaded != ls.shaded ||
+				sc.material != ls.material || sc.indices != ls.indices) {
 				can_fast = false;
 				break;
 			}
@@ -874,7 +898,7 @@ void SpineSprite3D::build_meshes() {
 		// FAST PATH: update existing surface buffers in place (no free / recreate).
 		for (int s = 0; s < surface_count; s++) {
 			const SpineSprite3DLocalSurface &ls = local_surfaces[s];
-			SurfaceCache &sc = surface_cache.ptrw()[s]; // Vector::operator[] is const; need a mutable ref
+			SurfaceCache &sc = surface_cache.ptrw()[s];// Vector::operator[] is const; need a mutable ref
 			const int vc = sc.num_vertices;
 
 			uint8_t *vertex_write = sc.vertex_buffer.ptrw();
@@ -888,18 +912,16 @@ void SpineSprite3D::build_meshes() {
 				// constant normal/tangent bytes live elsewhere in the same vertex stride and
 				// are deliberately left untouched, preserving the validated shaded layout.
 				const Vector3 &p = ls.positions[v];
-				float pos[3] = { (float) p.x, (float) p.y, (float) p.z };
+				float pos[3] = {(float) p.x, (float) p.y, (float) p.z};
 				memcpy(&vertex_write[v * sc.vertex_stride + v_off], pos, sizeof(float) * 3);
 
 				const Color &col = ls.colors[v];
-				uint8_t color[4] = {
-					uint8_t(CLAMP(col.r * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.g * 255.0, 0.0, 255.0)),
-					uint8_t(CLAMP(col.b * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.a * 255.0, 0.0, 255.0))
-				};
+				uint8_t color[4] = {uint8_t(CLAMP(col.r * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.g * 255.0, 0.0, 255.0)),
+									uint8_t(CLAMP(col.b * 255.0, 0.0, 255.0)), uint8_t(CLAMP(col.a * 255.0, 0.0, 255.0))};
 				memcpy(&attribute_write[v * sc.attribute_stride + c_off], color, 4);
 
 				const Vector2 &t = ls.uvs[v];
-				float uv[2] = { (float) t.x, (float) t.y };
+				float uv[2] = {(float) t.x, (float) t.y};
 				memcpy(&attribute_write[v * sc.attribute_stride + uv_off], uv, sizeof(float) * 2);
 			}
 
@@ -947,10 +969,10 @@ void SpineSprite3D::build_meshes() {
 			tangents.resize(vc * 4);
 			for (int ni = 0; ni < vc; ni++) {
 				normals[ni] = Vector3(0, 0, 1);
-				tangents[ni * 4 + 0] = 1.0f; // tangent X
-				tangents[ni * 4 + 1] = 0.0f; // tangent Y
-				tangents[ni * 4 + 2] = 0.0f; // tangent Z
-				tangents[ni * 4 + 3] = 1.0f; // binormal sign
+				tangents[ni * 4 + 0] = 1.0f;// tangent X
+				tangents[ni * 4 + 1] = 0.0f;// tangent Y
+				tangents[ni * 4 + 2] = 0.0f;// tangent Z
+				tangents[ni * 4 + 3] = 1.0f;// binormal sign
 			}
 #else
 			Vector<Vector3> normals;
@@ -978,7 +1000,7 @@ void SpineSprite3D::build_meshes() {
 
 #ifdef SPINE_GODOT_EXTENSION
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
-				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		// Capture the surface layout + buffers for subsequent fast-path region updates.
 		Dictionary surface = RS::get_singleton()->mesh_get_surface(mesh, s);
 		RS::ArrayFormat surface_format = (RS::ArrayFormat) static_cast<int64_t>(surface["format"]);
@@ -993,10 +1015,11 @@ void SpineSprite3D::build_meshes() {
 		RS::SurfaceData surface;
 		uint32_t skin_stride = 0;
 		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (RS::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
-				TypedArray<Array>(), Dictionary(), Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+																  TypedArray<Array>(), Dictionary(),
+																  Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		RS::get_singleton()->mesh_add_surface(mesh, surface);
-		RS::get_singleton()->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count,
-				sc.surface_offsets, sc.vertex_stride, sc.normal_tangent_stride, sc.attribute_stride, skin_stride);
+		RS::get_singleton()->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count, sc.surface_offsets,
+																   sc.vertex_stride, sc.normal_tangent_stride, sc.attribute_stride, skin_stride);
 		sc.vertex_buffer = surface.vertex_data;
 		sc.attribute_buffer = surface.attribute_data;
 #endif
@@ -1040,8 +1063,7 @@ void SpineSprite3D::build_debug_mesh() {
 	// We append the debug surfaces on that same mesh; cleanup is handled by build_meshes().
 
 	// Early-out when nothing is enabled or skeleton not ready.
-	bool any_enabled = debug_root || debug_bones || debug_regions || debug_meshes ||
-					   debug_bounding_boxes || debug_paths || debug_clipping;
+	bool any_enabled = debug_root || debug_bones || debug_regions || debug_meshes || debug_bounding_boxes || debug_paths || debug_clipping;
 	if (!any_enabled) return;
 	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
 
@@ -1057,12 +1079,12 @@ void SpineSprite3D::build_debug_mesh() {
 	// --- TRIANGLES surface (bones) ---
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array tri_positions;
-	PackedColorArray   tri_colors;
-	PackedInt32Array   tri_indices;
+	PackedColorArray tri_colors;
+	PackedInt32Array tri_indices;
 #else
 	Vector<Vector3> tri_positions;
-	Vector<Color>   tri_colors;
-	Vector<int>     tri_indices;
+	Vector<Color> tri_colors;
+	Vector<int> tri_indices;
 #endif
 
 	// Helper: emit one bone as a filled kite in local bone space, transformed by the
@@ -1091,8 +1113,8 @@ void SpineSprite3D::build_debug_mesh() {
 		if (bone_length == 0) bone_length = t * 2.0f;
 
 		// 4 local kite points
-		float lx[4] = { -t,  0.0f, bone_length,  0.0f };
-		float ly[4] = {  0.0f,  t,  0.0f,        -t   };
+		float lx[4] = {-t, 0.0f, bone_length, 0.0f};
+		float ly[4] = {0.0f, t, 0.0f, -t};
 
 		int base = (int) tri_positions.size();
 		for (int k = 0; k < 4; k++) {
@@ -1127,10 +1149,10 @@ void SpineSprite3D::build_debug_mesh() {
 	// --- LINES surface (regions, meshes, bounding boxes, paths, clipping) ---
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array dbg_positions;
-	PackedColorArray   dbg_colors;
+	PackedColorArray dbg_colors;
 #else
 	Vector<Vector3> dbg_positions;
-	Vector<Color>   dbg_colors;
+	Vector<Color> dbg_colors;
 #endif
 
 	// Helper: emit one line segment between two 2D Spine world-space points.
@@ -1146,12 +1168,10 @@ void SpineSprite3D::build_debug_mesh() {
 	auto emit_polygon = [&](float *verts, int num_verts, const Color &col) {
 		if (num_verts < 2) return;
 		for (int i = 0; i < num_verts - 1; i++) {
-			emit_line(verts[i * 2], verts[i * 2 + 1],
-					  verts[(i + 1) * 2], verts[(i + 1) * 2 + 1], col);
+			emit_line(verts[i * 2], verts[i * 2 + 1], verts[(i + 1) * 2], verts[(i + 1) * 2 + 1], col);
 		}
 		// Close: last -> first
-		emit_line(verts[(num_verts - 1) * 2], verts[(num_verts - 1) * 2 + 1],
-				  verts[0], verts[1], col);
+		emit_line(verts[(num_verts - 1) * 2], verts[(num_verts - 1) * 2 + 1], verts[0], verts[1], col);
 	};
 
 	// Helper: emit triangle-mesh edges (non-deduplicated — sufficient for debug).
@@ -1243,8 +1263,7 @@ void SpineSprite3D::build_debug_mesh() {
 				bool closed = path_att->getClosed();
 				for (int vi = 0; vi < num_verts - 1; vi++) {
 					emit_line(scratch_world_verts.buffer()[vi * 2], scratch_world_verts.buffer()[vi * 2 + 1],
-							  scratch_world_verts.buffer()[(vi + 1) * 2], scratch_world_verts.buffer()[(vi + 1) * 2 + 1],
-							  debug_paths_color);
+							  scratch_world_verts.buffer()[(vi + 1) * 2], scratch_world_verts.buffer()[(vi + 1) * 2 + 1], debug_paths_color);
 				}
 				if (closed) {
 					emit_line(scratch_world_verts.buffer()[(num_verts - 1) * 2], scratch_world_verts.buffer()[(num_verts - 1) * 2 + 1],
@@ -1280,7 +1299,7 @@ void SpineSprite3D::build_debug_mesh() {
 	if (!debug_lines_material.is_valid()) {
 		debug_lines_material.instantiate();
 		debug_lines_material->set_shader(statics.get_lines_shader());
-		debug_lines_material->set_render_priority(127); // draw on top among transparent surfaces
+		debug_lines_material->set_render_priority(127);// draw on top among transparent surfaces
 	}
 	debug_lines_material->set_shader_parameter("billboard_mode", (int) billboard);
 	RID dbg_mat = debug_lines_material->get_rid();
@@ -1290,11 +1309,11 @@ void SpineSprite3D::build_debug_mesh() {
 		Array tri_arrays;
 		tri_arrays.resize(Mesh::ARRAY_MAX);
 		tri_arrays[Mesh::ARRAY_VERTEX] = tri_positions;
-		tri_arrays[Mesh::ARRAY_COLOR]  = tri_colors;
-		tri_arrays[Mesh::ARRAY_INDEX]  = tri_indices;
+		tri_arrays[Mesh::ARRAY_COLOR] = tri_colors;
+		tri_arrays[Mesh::ARRAY_INDEX] = tri_indices;
 
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, tri_arrays, Array(), Dictionary(),
-				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
 		if (sc > 0) {
@@ -1307,10 +1326,10 @@ void SpineSprite3D::build_debug_mesh() {
 		Array line_arrays;
 		line_arrays.resize(Mesh::ARRAY_MAX);
 		line_arrays[Mesh::ARRAY_VERTEX] = dbg_positions;
-		line_arrays[Mesh::ARRAY_COLOR]  = dbg_colors;
+		line_arrays[Mesh::ARRAY_COLOR] = dbg_colors;
 
 		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, line_arrays, Array(), Dictionary(),
-				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+														  RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 
 		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
 		if (sc > 0) {
@@ -1641,16 +1660,16 @@ Transform3D SpineSprite3D::bone_to_transform3d(spine::Bone *bone, float slot_z) 
 	float wx = bone->getAppliedPose().getWorldX() * pixel_size * fx;
 	float wy = -bone->getAppliedPose().getWorldY() * pixel_size * fv;
 
-	Vector3 col0(a * fx, -b * fv, 0);   // X axis: validated (a,-b,0) with flip diagonal applied
-	Vector3 col1(-c * fx, d * fv, 0);   // Y axis: validated (-c,d,0) with flip diagonal applied
+	Vector3 col0(a * fx, -b * fv, 0);// X axis: validated (a,-b,0) with flip diagonal applied
+	Vector3 col1(-c * fx, d * fv, 0);// Y axis: validated (-c,d,0) with flip diagonal applied
 
 	// F4: keep Z well-formed and consistent with the in-plane scale (avoids a degenerate
 	// unit Z when the bone's in-plane scale differs). Sign tracks the handedness flips so the
 	// basis determinant stays consistent with the geometry. Falls back to 1 for zero-scale bones.
 	float in_plane_scale = col0.length();
 	if (in_plane_scale <= 0.0f) in_plane_scale = 1.0f;
-	float zlen = in_plane_scale * fx * fv; // fx*fv keeps determinant sign consistent under flips
-	Vector3 col2(0, 0, zlen);           // Z normal (into screen)
+	float zlen = in_plane_scale * fx * fv;// fx*fv keeps determinant sign consistent under flips
+	Vector3 col2(0, 0, zlen);             // Z normal (into screen)
 
 	Basis basis;
 	basis.set_column(0, col0);
@@ -1683,8 +1702,8 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 	// Since fx, fv are ±1, dividing by them is the same as multiplying by them.
 	const float fx = flip_h ? -1.0f : 1.0f;
 	const float fv = flip_v ? -1.0f : 1.0f;
-	Vector3 col0 = local.basis.get_column(0); // (a*fx, -b*fv, ...)
-	Vector3 col1 = local.basis.get_column(1); // (-c*fx, d*fv, ...)
+	Vector3 col0 = local.basis.get_column(0);// (a*fx, -b*fv, ...)
+	Vector3 col1 = local.basis.get_column(1);// (-c*fx, d*fv, ...)
 
 	auto &pose = bone->getAppliedPose();
 	pose.setA(col0.x * fx);
@@ -1699,4 +1718,4 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 	modified_bones = true;
 }
 
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED

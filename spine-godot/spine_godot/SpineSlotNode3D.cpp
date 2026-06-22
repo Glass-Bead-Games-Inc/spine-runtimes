@@ -220,4 +220,4 @@ void SpineSlotNode3D::set_screen_material(Ref<Material> material) {
 	screen_material = material;
 }
 
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED

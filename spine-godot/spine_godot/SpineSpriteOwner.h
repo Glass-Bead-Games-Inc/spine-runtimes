@@ -60,7 +60,8 @@ class SpineAnimationState;
 // `this` correctly adjusted to Node* via the virtual call.
 class SpineSpriteOwner {
 public:
-	virtual ~SpineSpriteOwner() {}
+	virtual ~SpineSpriteOwner() {
+	}
 	virtual Ref<SpineSkeleton> get_skeleton() = 0;
 	virtual Ref<SpineSkeletonDataResource> get_skeleton_data_res() = 0;
 	virtual Ref<SpineAnimationState> get_animation_state() = 0;

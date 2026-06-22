@@ -203,8 +203,8 @@ void SpineBone::set_global_transform(Transform2D transform) {
 	// (SpineSprite3D) the 2D API no-ops; with no owner it falls back to the local transform.
 	SpineSprite *sprite2d = get_spine_owner() ? Object::cast_to<SpineSprite>(get_spine_owner()->owner_as_node()) : nullptr;
 	if (!sprite2d) {
-		if (!get_spine_owner()) set_transform(transform); // no owner: store locally (preserves prior behavior)
-		return;                                            // 3D owner: 2D transform API is a no-op
+		if (!get_spine_owner()) set_transform(transform);// no owner: store locally (preserves prior behavior)
+		return;                                          // 3D owner: 2D transform API is a no-op
 	}
 	if (!sprite2d->is_visible_in_tree()) return;
 

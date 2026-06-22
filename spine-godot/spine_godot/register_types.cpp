@@ -39,7 +39,7 @@
 #include "SpineSprite.h"
 #ifndef _3D_DISABLED
 #include "SpineSprite3D.h"
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineAnimationTrack.h"
@@ -76,7 +76,7 @@
 #ifndef _3D_DISABLED
 #include "SpineSlotNode3D.h"
 #include "SpineBoneNode3D.h"
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 #include "spine/Bone.h"
 
 static SpineAtlasResourceFormatLoader *atlas_loader;
@@ -155,7 +155,7 @@ void register_spine_godot_types() {
 	GDREGISTER_CLASS(SpineSprite);
 #ifndef _3D_DISABLED
 	GDREGISTER_CLASS(SpineSprite3D);
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 	GDREGISTER_CLASS(SpineMesh2D);
 	GDREGISTER_CLASS(SpineSkeleton);
 	GDREGISTER_CLASS(SpineAnimationState);
@@ -197,7 +197,7 @@ void register_spine_godot_types() {
 #ifndef _3D_DISABLED
 	GDREGISTER_CLASS(SpineSlotNode3D);
 	GDREGISTER_CLASS(SpineBoneNode3D);
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 #ifndef SPINE_GODOT_EXTENSION
 	GDREGISTER_CLASS(SpineAnimationTrack);
 #endif
@@ -249,7 +249,7 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 		SpineSprite::clear_statics();
 #ifndef _3D_DISABLED
 		SpineSprite3D::clear_statics();
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;
@@ -265,7 +265,7 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 		SpineSprite::clear_statics();
 #ifndef _3D_DISABLED
 		SpineSprite3D::clear_statics();
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;

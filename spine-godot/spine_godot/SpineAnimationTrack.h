@@ -33,7 +33,7 @@
 #include "SpineSprite.h"
 #ifndef _3D_DISABLED
 #include "SpineSprite3D.h"
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 #include "SpineSpriteOwner.h"
 #include "scene/animation/animation_player.h"
 #include "scene/resources/animation.h"
@@ -70,7 +70,7 @@ protected:
 		if (SpineSprite *s = Object::cast_to<SpineSprite>(o)) return s;
 #ifndef _3D_DISABLED
 		if (SpineSprite3D *s3 = Object::cast_to<SpineSprite3D>(o)) return s3;
-#endif // _3D_DISABLED
+#endif// _3D_DISABLED
 		return nullptr;
 	}
 
