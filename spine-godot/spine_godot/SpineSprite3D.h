@@ -59,7 +59,7 @@
 #include "core/templates/hash_map.h"
 #include "core/templates/vector.h"
 #include "scene/resources/material.h"// declares Material + ShaderMaterial (no separate shader_material.h in 4.x)
-// Fix #10: SurfaceCache below references RS::ARRAY_MAX and the region-update layout.
+// Fix #10: SurfaceCache below references SPINE_RS_ARRAY::ARRAY_MAX and the region-update layout.
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
 #else
@@ -175,7 +175,7 @@ protected:
 #endif
 		RID material;// material RID assigned to the surface (RID() if none)
 		// Surface buffer layout for region updates (mirrors SpineMesh2D fields).
-		uint32_t surface_offsets[RS::ARRAY_MAX] = {};
+		uint32_t surface_offsets[SPINE_RS_ARRAY::ARRAY_MAX] = {};
 		uint32_t vertex_stride = 0;
 		uint32_t normal_tangent_stride = 0;
 		uint32_t attribute_stride = 0;

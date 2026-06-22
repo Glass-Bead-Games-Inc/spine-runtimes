@@ -76,7 +76,7 @@ protected:
 
 #if VERSION_MAJOR > 3
 	RID mesh;
-	uint32_t surface_offsets[RS::ARRAY_MAX];
+	uint32_t surface_offsets[SPINE_RS_ARRAY::ARRAY_MAX];
 	int num_vertices;
 	int num_indices;
 	PackedByteArray vertex_buffer;

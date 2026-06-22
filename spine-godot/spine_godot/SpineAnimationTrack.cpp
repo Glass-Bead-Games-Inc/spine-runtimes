@@ -182,11 +182,20 @@ void SpineAnimationTrack::setup_animation_player() {
 		animation_player->set_owner(snode->get_owner());
 	} else {
 #if VERSION_MAJOR > 3
+#if VERSION_MINOR >= 7
+		// Godot 4.7 changed get_animation_library_list to take a LocalVector.
+		LocalVector<StringName> animation_libraries;
+		animation_player->get_animation_library_list(&animation_libraries);
+		for (uint32_t i = 0; i < animation_libraries.size(); i++) {
+			animation_player->remove_animation_library(animation_libraries[i]);
+		}
+#else
 		List<StringName> animation_libraries;
 		animation_player->get_animation_library_list(&animation_libraries);
 		for (auto iter = animation_libraries.front(); iter; iter = iter->next()) {
 			animation_player->remove_animation_library(iter->get());
 		}
+#endif
 #else
 		List<StringName> animation_names;
 		animation_player->get_animation_list(&animation_names);

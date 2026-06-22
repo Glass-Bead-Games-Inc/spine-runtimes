@@ -124,6 +124,15 @@ using namespace godot;
 #define SPINE_STRING(x) spine::String((x).utf8().ptr())
 #define SPINE_STRING_TMP(x) spine::String((x).utf8().ptr(), true, false)
 
+// Godot 4.7 moved the RenderingServer array enums (ARRAY_VERTEX, ARRAY_MAX,
+// ARRAY_FLAG_USE_DYNAMIC_UPDATE, ...) into the RenderingServerEnums (RSE) struct.
+// The GDExtension (godot-cpp) and Godot <= 4.6 keep them on RenderingServer (RS).
+#if !defined(SPINE_GODOT_EXTENSION) && VERSION_MAJOR > 3 && VERSION_MINOR >= 7
+#define SPINE_RS_ARRAY RSE
+#else
+#define SPINE_RS_ARRAY RS
+#endif
+
 #include "SpineSpriteOwner.h"
 
 // Can't do template classes with Godot's object model :(
