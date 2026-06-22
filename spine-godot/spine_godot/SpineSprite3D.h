@@ -116,7 +116,7 @@ protected:
 	Color debug_root_color;
 	bool debug_bones;
 	Color debug_bones_color;
-	float debug_bones_thickness; // NOTE: 3D PRIMITIVE_LINES are always 1px; thickness has no visual effect in 3D
+	float debug_bones_thickness; // Controls kite width for the bones debug overlay (bones are rendered as filled TRIANGLES; other debug categories remain 1px LINES)
 	bool debug_regions;
 	Color debug_regions_color;
 	bool debug_meshes;

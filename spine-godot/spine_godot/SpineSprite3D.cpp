@@ -1019,22 +1019,25 @@ void SpineSprite3D::build_meshes() {
 }
 
 // ---------------------------------------------------------------------------
-// Task 11: build_debug_mesh — rebuild the PRIMITIVE_LINES debug overlay.
+// Task 11: build_debug_mesh — rebuild the debug overlay.
 //
-// Strategy: accumulate line-segment pairs in dbg_positions / dbg_colors, then
-// emit a single PRIMITIVE_LINES surface appended to the primary mesh.  Each vertex is:
-//   Vector3(x * sx, y * sy, z_epsilon)
-// where sx/sy mirror the render-path flip convention and z_epsilon keeps the
-// lines in front of the attachment quads.
+// Two surfaces are appended to the primary mesh (after the render surfaces):
+//   1. PRIMITIVE_TRIANGLES — bones (root + all bones) as filled kite/diamond
+//      polygons whose width is controlled by debug_bones_thickness.
+//   2. PRIMITIVE_LINES — all other categories (regions, meshes, bounding boxes,
+//      paths, clipping).  3D lines are always 1px regardless of thickness.
 //
-// NOTE: debug_bones_thickness has no visual effect in 3D — PRIMITIVE_LINES are
-// always 1px regardless of thickness value.  The property is kept for API
-// parity with SpineSprite 2D.
+// Both surfaces share the per-sprite debug_lines_material (unshaded,
+// cull_disabled, depth_test_disabled, vertex-color-as-albedo).
+//
+// Coordinate conventions match build_meshes():
+//   3D point = Vector3(spine_x * sx, spine_y * sy, z_eps)
+//   sx = flip_h ? -pixel_size : pixel_size
+//   sy = flip_v ?  pixel_size : -pixel_size
 // ---------------------------------------------------------------------------
 void SpineSprite3D::build_debug_mesh() {
 	// The primary mesh is recreated from scratch by build_meshes() every frame.
-	// We append the debug lines as an additional PRIMITIVE_LINES surface on that same mesh.
-	// No separate RID management needed here — mesh cleanup is handled by build_meshes().
+	// We append the debug surfaces on that same mesh; cleanup is handled by build_meshes().
 
 	// Early-out when nothing is enabled or skeleton not ready.
 	bool any_enabled = debug_root || debug_bones || debug_regions || debug_meshes ||
@@ -1048,13 +1051,83 @@ void SpineSprite3D::build_debug_mesh() {
 	// Coordinate conventions matching build_meshes():
 	float sx = flip_h ? -pixel_size : pixel_size;
 	float sy = flip_v ? pixel_size : -pixel_size;
-	// Small Z offset so debug lines sit in front of the attachment geometry.
+	// Small Z offset so debug geometry sits in front of the attachment quads.
 	const float z_eps = 0.001f;
 
-	// Line-segment scratch buffers.
+	// --- TRIANGLES surface (bones) ---
+#ifdef SPINE_GODOT_EXTENSION
+	PackedVector3Array tri_positions;
+	PackedColorArray   tri_colors;
+	PackedInt32Array   tri_indices;
+#else
+	Vector<Vector3> tri_positions;
+	Vector<Color>   tri_colors;
+	Vector<int>     tri_indices;
+#endif
+
+	// Helper: emit one bone as a filled kite in local bone space, transformed by the
+	// bone's world matrix (a, b, c, d, worldX, worldY).
+	//
+	// Kite local points (matching SpineSprite::draw_bone / 2D reference):
+	//   P0 = (-t,  0)
+	//   P1 = ( 0,  t)
+	//   P2 = (bone_length, 0)
+	//   P3 = ( 0, -t)
+	//
+	// Transform local (lx, ly) to Spine world space:
+	//   spine_x = a*lx + c*ly + worldX
+	//   spine_y = b*lx + d*ly + worldY
+	// Then to 3D: Vector3(spine_x * sx, spine_y * sy, z_eps)
+	//
+	// Emitted as 2 triangles: [P0,P1,P2] and [P0,P2,P3].
+	// cull_disabled on the material handles either winding under flip.
+	auto emit_bone_kite = [&](spine::Bone *bone, const Color &col) {
+		if (!bone || !bone->isActive()) return;
+		auto &bp = bone->getAppliedPose();
+		float a = bp.getA(), b = bp.getB(), c = bp.getC(), d = bp.getD();
+		float wx = bp.getWorldX(), wy = bp.getWorldY();
+		float bone_length = bone->getData().getLength();
+		float t = debug_bones_thickness;
+		if (bone_length == 0) bone_length = t * 2.0f;
+
+		// 4 local kite points
+		float lx[4] = { -t,  0.0f, bone_length,  0.0f };
+		float ly[4] = {  0.0f,  t,  0.0f,        -t   };
+
+		int base = (int) tri_positions.size();
+		for (int k = 0; k < 4; k++) {
+			float sxp = a * lx[k] + c * ly[k] + wx;
+			float syp = b * lx[k] + d * ly[k] + wy;
+			tri_positions.push_back(Vector3(sxp * sx, syp * sy, z_eps));
+			tri_colors.push_back(col);
+		}
+		// Triangle 0: P0, P1, P2
+		tri_indices.push_back(base + 0);
+		tri_indices.push_back(base + 1);
+		tri_indices.push_back(base + 2);
+		// Triangle 1: P0, P2, P3
+		tri_indices.push_back(base + 0);
+		tri_indices.push_back(base + 2);
+		tri_indices.push_back(base + 3);
+	};
+
+	// --- Root bone ---
+	if (debug_root) {
+		emit_bone_kite(sk->getRootBone(), debug_root_color);
+	}
+
+	// --- All bones ---
+	if (debug_bones) {
+		auto &bones = sk->getBones();
+		for (int i = 0; i < (int) bones.size(); i++) {
+			emit_bone_kite(bones[i], debug_bones_color);
+		}
+	}
+
+	// --- LINES surface (regions, meshes, bounding boxes, paths, clipping) ---
 #ifdef SPINE_GODOT_EXTENSION
 	PackedVector3Array dbg_positions;
-	PackedColorArray  dbg_colors;
+	PackedColorArray   dbg_colors;
 #else
 	Vector<Vector3> dbg_positions;
 	Vector<Color>   dbg_colors;
@@ -1197,67 +1270,52 @@ void SpineSprite3D::build_debug_mesh() {
 		}
 	}
 
-	// Helper: draw one bone as a line from world origin to tip along the bone's local X axis.
-	// Uses the bone's world matrix (a,b = X-axis direction) to avoid trig dependencies.
-	auto emit_bone = [&](spine::Bone *bone, const Color &col) {
-		if (!bone || !bone->isActive()) return;
-		float wx = bone->getAppliedPose().getWorldX();
-		float wy = bone->getAppliedPose().getWorldY();
-		float len = bone->getData().getLength();
-		if (len == 0) len = debug_bones_thickness * 2.0f;
-		// Bone local X axis in world space = (a, b) (column 0 of the 2x2 world matrix)
-		float a = bone->getAppliedPose().getA();
-		float b = bone->getAppliedPose().getB();
-		// Normalise so length-0 bones still show a marker
-		float mag = spine::MathUtil::sqrt(a * a + b * b);
-		if (mag > 0.0f) { a /= mag; b /= mag; }
-		float tip_x = wx + a * len;
-		float tip_y = wy + b * len;
-		emit_line(wx, wy, tip_x, tip_y, col);
-	};
-
-	// --- Root bone ---
-	if (debug_root) {
-		emit_bone(sk->getRootBone(), debug_root_color);
-	}
-
-	// --- Bones ---
-	if (debug_bones) {
-		auto &bones = sk->getBones();
-		for (int i = 0; i < (int) bones.size(); i++) {
-			emit_bone(bones[i], debug_bones_color);
-		}
-	}
-
-	// --- Build the PRIMITIVE_LINES mesh surface ---
-	if (dbg_positions.size() == 0) return;
+	// Nothing to render at all — skip surface creation.
+	if (tri_indices.size() == 0 && dbg_positions.size() == 0) return;
 	if (!mesh.is_valid()) return;
 
-	// Add the debug lines as an additional PRIMITIVE_LINES surface on the primary mesh RID.
-	// build_meshes() already called set_base(mesh), so this surface is rendered by the
-	// same instance without needing a separate RS instance or scenario setup.
-	// build_meshes() frees and recreates mesh each frame, so this surface is cleaned up
-	// automatically — no separate debug mesh RID is needed.
-	Array arrays;
-	arrays.resize(Mesh::ARRAY_MAX);
-	arrays[Mesh::ARRAY_VERTEX] = dbg_positions;
-	arrays[Mesh::ARRAY_COLOR]  = dbg_colors;
-
-	RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, arrays, Array(), Dictionary(),
-			RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
-
-	// Lazily create the per-sprite debug lines material from the shared lines shader.
-	// Each sprite has its own material so billboard_mode can be set independently.
+	// Lazily create the per-sprite debug material (shared by both surfaces).
+	// Unshaded / cull_disabled / depth_test_disabled / vertex-color-as-albedo.
+	// The same material works for both PRIMITIVE_TRIANGLES and PRIMITIVE_LINES.
 	if (!debug_lines_material.is_valid()) {
 		debug_lines_material.instantiate();
 		debug_lines_material->set_shader(statics.get_lines_shader());
 		debug_lines_material->set_render_priority(127); // draw on top among transparent surfaces
 	}
 	debug_lines_material->set_shader_parameter("billboard_mode", (int) billboard);
+	RID dbg_mat = debug_lines_material->get_rid();
 
-	int surface_count = RS::get_singleton()->mesh_get_surface_count(mesh);
-	if (surface_count > 0) {
-		RS::get_singleton()->mesh_surface_set_material(mesh, surface_count - 1, debug_lines_material->get_rid());
+	// --- Append TRIANGLES surface (bones / root) ---
+	if (tri_indices.size() > 0) {
+		Array tri_arrays;
+		tri_arrays.resize(Mesh::ARRAY_MAX);
+		tri_arrays[Mesh::ARRAY_VERTEX] = tri_positions;
+		tri_arrays[Mesh::ARRAY_COLOR]  = tri_colors;
+		tri_arrays[Mesh::ARRAY_INDEX]  = tri_indices;
+
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_TRIANGLES, tri_arrays, Array(), Dictionary(),
+				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+
+		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
+		if (sc > 0) {
+			RS::get_singleton()->mesh_surface_set_material(mesh, sc - 1, dbg_mat);
+		}
+	}
+
+	// --- Append LINES surface (regions/meshes/bbox/paths/clipping) ---
+	if (dbg_positions.size() > 0) {
+		Array line_arrays;
+		line_arrays.resize(Mesh::ARRAY_MAX);
+		line_arrays[Mesh::ARRAY_VERTEX] = dbg_positions;
+		line_arrays[Mesh::ARRAY_COLOR]  = dbg_colors;
+
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PRIMITIVE_LINES, line_arrays, Array(), Dictionary(),
+				RS::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+
+		int sc = RS::get_singleton()->mesh_get_surface_count(mesh);
+		if (sc > 0) {
+			RS::get_singleton()->mesh_surface_set_material(mesh, sc - 1, dbg_mat);
+		}
 	}
 }
 
