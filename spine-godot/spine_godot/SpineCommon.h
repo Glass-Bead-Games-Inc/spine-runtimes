@@ -74,7 +74,13 @@ using namespace godot;
 #if VERSION_MAJOR > 3
 #include "core/core_bind.h"
 #include "core/error/error_macros.h"
-#include "core/object/callable_method_pointer.h"// callable_mp; no longer transitively included in Godot 4.7
+// callable_mp is no longer transitively included as of Godot 4.7, which also
+// renamed its header from callable_method_pointer.h to callable_mp.h.
+#if VERSION_MINOR >= 7
+#include "core/object/callable_mp.h"
+#else
+#include "core/object/callable_method_pointer.h"
+#endif
 #define REFCOUNTED RefCounted
 #define EMPTY(x) ((x).is_empty())
 #define EMPTY_PTR(x) ((x)->is_empty())
