@@ -40,6 +40,13 @@
 #include <godot_cpp/classes/canvas_item_material.hpp>
 #else
 #include "scene/2d/node_2d.h"
+// RS (RenderingServer) is used in inline methods below; Godot 4.7 no longer
+// pulls it in transitively, so include it explicitly.
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
+#include "servers/rendering/rendering_server.h"
+#else
+#include "servers/rendering_server.h"
+#endif
 #endif
 
 class SpineSlotNode;

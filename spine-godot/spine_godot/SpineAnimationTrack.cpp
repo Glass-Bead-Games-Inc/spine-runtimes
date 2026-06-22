@@ -30,6 +30,7 @@
 #ifndef SPINE_GODOT_EXTENSION
 
 #include "SpineAnimationTrack.h"
+#include <cfloat>// FLT_MAX (Godot 4.7 no longer includes it transitively)
 #if VERSION_MAJOR > 3
 #include "core/config/engine.h"
 #else
