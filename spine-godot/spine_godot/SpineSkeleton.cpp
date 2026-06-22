@@ -96,7 +96,7 @@ SpineSkeleton::~SpineSkeleton() {
 	delete skeleton;
 }
 
-void SpineSkeleton::set_spine_sprite(SpineSprite *_sprite) {
+void SpineSkeleton::set_spine_sprite(SpineSpriteOwner *_sprite) {
 	delete skeleton;
 	skeleton = nullptr;
 	sprite = _sprite;

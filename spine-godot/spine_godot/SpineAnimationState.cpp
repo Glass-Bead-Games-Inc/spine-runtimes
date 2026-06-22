@@ -57,7 +57,7 @@ SpineAnimationState::~SpineAnimationState() {
 	delete animation_state;
 }
 
-void SpineAnimationState::set_spine_sprite(SpineSprite *_sprite) {
+void SpineAnimationState::set_spine_sprite(SpineSpriteOwner *_sprite) {
 	delete animation_state;
 	animation_state = nullptr;
 	sprite = _sprite;

@@ -30,60 +30,42 @@
 #pragma once
 
 #include "SpineCommon.h"
-#include "SpineConstant.h"
-#include <spine/BoneLocal.h>
 
-class SpineSprite;
-class SpineSkeletonDataResource;
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
-class SpineBoneLocal : public SpineObjectWrapper {
-	GDCLASS(SpineBoneLocal, SpineObjectWrapper)
+#include "SpineCommon.h"
+#include "SpineSprite3D.h"
+#ifdef SPINE_GODOT_EXTENSION
+#include <godot_cpp/classes/node3d.hpp>
+#else
+#include "scene/3d/node_3d.h"
+#endif
+
+class SpineBoneNode3D : public Node3D {
+	GDCLASS(SpineBoneNode3D, Node3D)
 
 protected:
+	String bone_name;
+	int bone_index;
+
 	static void _bind_methods();
+	void _notification(int what);
+	void _get_property_list(List<PropertyInfo> *list) const;
+	bool _get(const StringName &property, Variant &value) const;
+	bool _set(const StringName &property, const Variant &value);
+	void on_world_transforms_changed(const Variant &_sprite);
+	void update_transform(SpineSprite3D *sprite);
 
 public:
-	// Can be used by both SpineSprite and SpineSkeletonDataResource
-	void set_spine_object(void *owner, spine::BoneLocal *object) {
-		_set_spine_object_internal(owner, object);
+	SpineBoneNode3D() : bone_index(-1) {
 	}
 
-	// SpineSpriteOwner* is not directly an Object* (multiple inheritance);
-	// adjust to Node* via owner_as_node() before storing.
-	void set_spine_object(SpineSpriteOwner *owner, spine::BoneLocal *object) {
-		_set_spine_object_internal(owner ? owner->owner_as_node() : (Node *) nullptr, object);
+	void set_bone_name(const String &_bone_name);
+	String get_bone_name();
+
+	int get_bone_index() {
+		return bone_index;
 	}
-
-	spine::BoneLocal *get_spine_object() {
-		return (spine::BoneLocal *) _get_spine_object_internal();
-	}
-
-	float get_x();
-	void set_x(float v);
-
-	float get_y();
-	void set_y(float v);
-
-	float get_rotation();
-	void set_rotation(float v);
-
-	float get_scale_x();
-	void set_scale_x(float v);
-
-	float get_scale_y();
-	void set_scale_y(float v);
-
-	float get_shear_x();
-	void set_shear_x(float v);
-
-	float get_shear_y();
-	void set_shear_y(float v);
-
-	SpineConstant::Inherit get_inherit();
-	void set_inherit(SpineConstant::Inherit inherit);
-
-	// Convenience methods
-	void set_position(float x, float y);
-	void set_scale(float scale_x, float scale_y);
-	void set_scale_uniform(float scale);
 };
+
+#endif// _3D_DISABLED

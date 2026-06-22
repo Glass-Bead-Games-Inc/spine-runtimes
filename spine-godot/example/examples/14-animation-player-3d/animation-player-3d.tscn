@@ -1,0 +1,174 @@
+[gd_scene load_steps=9 format=3 uid="uid://anim_player_3d_ex"]
+
+[ext_resource type="Script" path="res://examples/14-animation-player-3d/animation-player-3d.gd" id="1_script"]
+[ext_resource type="SpineSkeletonDataResource" uid="uid://dnbewvcwkgmby" path="res://assets/spineboy/spineboy-data-res.tres" id="2_spineboy"]
+[ext_resource type="SpineSkeletonDataResource" path="res://assets/raptor/raptor-data.tres" id="3_raptor"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(60, 60)
+
+[sub_resource type="Animation" id="Animation_reset"]
+resource_name = "RESET"
+length = 0.5
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Spineboy:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(-6, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Raptor:position")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(6, 0, 0)]
+}
+
+[sub_resource type="Animation" id="Animation_cutscene"]
+resource_name = "cutscene"
+length = 10.0
+step = 0.02
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Spineboy:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 4, 10),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector3(-6, 0, 0), Vector3(-1, 0, 0), Vector3(-1, 0, 0)]
+}
+tracks/1/type = "animation"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Spineboy/SpineAnimationTrack/Spineboy Track 0")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"clips": PackedStringArray("walk_looped", "idle", "death", "idle"),
+"times": PackedFloat32Array(0.0, 4.0, 4.34, 8.86)
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Spineboy/SpineAnimationTrack2:mix_duration")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [0.1]
+}
+tracks/3/type = "animation"
+tracks/3/imported = false
+tracks/3/enabled = true
+tracks/3/path = NodePath("Spineboy/SpineAnimationTrack2/Spineboy Track 1")
+tracks/3/interp = 1
+tracks/3/loop_wrap = true
+tracks/3/keys = {
+"clips": PackedStringArray("-- Empty --", "aim", "-- Empty --"),
+"times": PackedFloat32Array(0.14, 2.5, 3.94)
+}
+tracks/4/type = "value"
+tracks/4/imported = false
+tracks/4/enabled = true
+tracks/4/path = NodePath("Raptor:position")
+tracks/4/interp = 1
+tracks/4/loop_wrap = true
+tracks/4/keys = {
+"times": PackedFloat32Array(0, 2.02, 3.7, 10),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [Vector3(6, 0, 0), Vector3(6, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 0)]
+}
+tracks/5/type = "animation"
+tracks/5/imported = false
+tracks/5/enabled = true
+tracks/5/path = NodePath("Raptor/SpineAnimationTrack/Raptor Track 0")
+tracks/5/interp = 1
+tracks/5/loop_wrap = true
+tracks/5/keys = {
+"clips": PackedStringArray("walk_looped", "roar_looped", "-- Empty --"),
+"times": PackedFloat32Array(0.46, 3.7, 9.64)
+}
+tracks/6/type = "value"
+tracks/6/imported = false
+tracks/6/enabled = true
+tracks/6/path = NodePath("Spineboy/SpineAnimationTrack:mix_duration")
+tracks/6/interp = 1
+tracks/6/loop_wrap = true
+tracks/6/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.2]
+}
+tracks/7/type = "value"
+tracks/7/imported = false
+tracks/7/enabled = true
+tracks/7/path = NodePath("Raptor/SpineAnimationTrack:mix_duration")
+tracks/7/interp = 1
+tracks/7/loop_wrap = true
+tracks/7/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.2]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_root"]
+_data = {
+&"RESET": SubResource("Animation_reset"),
+&"cutscene": SubResource("Animation_cutscene")
+}
+
+[node name="AnimationPlayer3DExample" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 22)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8096981, 0.50449103, -0.29979634, 0.046573944, 0.45400625, 0.88978046, 0.5849957, -0.7344162, 0.34411186, 0, 8, 5)
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
+mesh = SubResource("PlaneMesh_floor")
+
+[node name="Spineboy" type="SpineSprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, 0)
+skeleton_data_res = ExtResource("2_spineboy")
+
+[node name="SpineAnimationTrack" type="SpineAnimationTrack" parent="Spineboy"]
+track_index = 0
+mix_duration = 0.2
+
+[node name="SpineAnimationTrack2" type="SpineAnimationTrack" parent="Spineboy"]
+track_index = 1
+mix_duration = 0.1
+
+[node name="Raptor" type="SpineSprite3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 0)
+skeleton_data_res = ExtResource("3_raptor")
+
+[node name="SpineAnimationTrack" type="SpineAnimationTrack" parent="Raptor"]
+track_index = 0
+mix_duration = 0.2
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries/ = SubResource("AnimationLibrary_root")

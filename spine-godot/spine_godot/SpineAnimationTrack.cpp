@@ -104,19 +104,21 @@ void SpineAnimationTrack::_bind_methods() {
 
 SpineAnimationTrack::SpineAnimationTrack()
 	: loop(false), animation_changed(false), track_index(-1), mix_duration(-1), additive(false), reverse(false), shortest_rotation(false),
-	  time_scale(1), alpha(1), mix_attachment_threshold(0), mix_draw_order_threshold(0), blend_tree_mode(false), debug(false), sprite(nullptr) {
+	  time_scale(1), alpha(1), mix_attachment_threshold(0), mix_draw_order_threshold(0), blend_tree_mode(false), debug(false), sprite_owner(nullptr) {
 }
 
 void SpineAnimationTrack::_notification(int what) {
 	switch (what) {
 		case NOTIFICATION_PARENTED: {
-			sprite = Object::cast_to<SpineSprite>(get_parent());
-			if (sprite)
+			sprite_owner = resolve_owner(get_parent());
+			if (sprite_owner) {
+				Node *snode = sprite_owner->owner_as_node();
 #if VERSION_MAJOR > 3
-				sprite->connect(SNAME("before_animation_state_update"), callable_mp(this, &SpineAnimationTrack::update_animation_state));
+				snode->connect(SNAME("before_animation_state_update"), callable_mp(this, &SpineAnimationTrack::update_animation_state));
 #else
-				sprite->connect(SNAME("before_animation_state_update"), this, SNAME("update_animation_state"));
+				snode->connect(SNAME("before_animation_state_update"), this, SNAME("update_animation_state"));
 #endif
+			}
 			NOTIFY_PROPERTY_LIST_CHANGED();
 			break;
 		}
@@ -125,13 +127,14 @@ void SpineAnimationTrack::_notification(int what) {
 			break;
 		}
 		case NOTIFICATION_UNPARENTED: {
-			if (sprite) {
+			if (sprite_owner) {
+				Node *snode = sprite_owner->owner_as_node();
 #if VERSION_MAJOR > 3
-				sprite->disconnect(SNAME("before_animation_state_update"), callable_mp(this, &SpineAnimationTrack::update_animation_state));
+				snode->disconnect(SNAME("before_animation_state_update"), callable_mp(this, &SpineAnimationTrack::update_animation_state));
 #else
-				sprite->disconnect(SNAME("before_animation_state_update"), this, SNAME("update_animation_state"));
+				snode->disconnect(SNAME("before_animation_state_update"), this, SNAME("update_animation_state"));
 #endif
-				sprite = nullptr;
+				sprite_owner = nullptr;
 			}
 			break;
 		}
@@ -152,16 +155,17 @@ AnimationPlayer *SpineAnimationTrack::find_animation_player() {
 }
 
 void SpineAnimationTrack::setup_animation_player() {
-	if (!sprite) return;
-	if (!sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	if (!sprite_owner) return;
+	if (!sprite_owner->get_skeleton_data_res().is_valid() || !sprite_owner->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	Node *snode = sprite_owner->owner_as_node();
 	AnimationPlayer *animation_player = find_animation_player();
 
 	// If we don't have a track index yet, find the highest track number used
 	// by existing tracks.
 	if (track_index < 0) {
 		int highest_track_number = -1;
-		for (int i = 0; i < sprite->get_child_count(); i++) {
-			auto other_track = cast_to<SpineAnimationTrack>(sprite->get_child(i));
+		for (int i = 0; i < snode->get_child_count(); i++) {
+			auto other_track = cast_to<SpineAnimationTrack>(snode->get_child(i));
 			if (other_track) {
 				if (other_track->track_index > highest_track_number) highest_track_number = other_track->track_index;
 			}
@@ -173,9 +177,9 @@ void SpineAnimationTrack::setup_animation_player() {
 	// if there isn't one already.
 	if (!animation_player) {
 		animation_player = memnew(AnimationPlayer);
-		animation_player->set_name(String("{0} Track {1}").format(varray(sprite->get_name(), String::num_int64(track_index))));
+		animation_player->set_name(String("{0} Track {1}").format(varray(snode->get_name(), String::num_int64(track_index))));
 		add_child(animation_player);
-		animation_player->set_owner(sprite->get_owner());
+		animation_player->set_owner(snode->get_owner());
 	} else {
 #if VERSION_MAJOR > 3
 		List<StringName> animation_libraries;
@@ -192,7 +196,7 @@ void SpineAnimationTrack::setup_animation_player() {
 #endif
 	}
 
-	auto skeleton_data = sprite->get_skeleton_data_res()->get_skeleton_data();
+	auto skeleton_data = sprite_owner->get_skeleton_data_res()->get_skeleton_data();
 	auto &animations = skeleton_data->getAnimations();
 #if VERSION_MAJOR > 3
 	Ref<AnimationLibrary> animation_library;
@@ -275,13 +279,13 @@ Ref<Animation> SpineAnimationTrack::create_animation(spine::Animation *animation
 
 void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) {
 	if (track_index < 0) return;
-	sprite = Object::cast_to<SpineSprite>(variant_sprite);
-	if (!sprite) return;
-	if (!sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
-	if (!sprite->get_skeleton().is_valid() || !sprite->get_animation_state().is_valid()) return;
-	spine::AnimationState *animation_state = sprite->get_animation_state()->get_spine_object();
+	sprite_owner = resolve_owner(Object::cast_to<Object>(variant_sprite));
+	if (!sprite_owner) return;
+	if (!sprite_owner->get_skeleton_data_res().is_valid() || !sprite_owner->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	if (!sprite_owner->get_skeleton().is_valid() || !sprite_owner->get_animation_state().is_valid()) return;
+	spine::AnimationState *animation_state = sprite_owner->get_animation_state()->get_spine_object();
 	if (!animation_state) return;
-	spine::Skeleton *skeleton = sprite->get_skeleton()->get_spine_object();
+	spine::Skeleton *skeleton = sprite_owner->get_skeleton()->get_spine_object();
 	if (!skeleton) return;
 	AnimationPlayer *animation_player = find_animation_player();
 	if (!animation_player) {
@@ -326,7 +330,7 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 
 					if (debug)
 						print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
-									   .format(varray(animation_name, mix_duration, track_index, sprite->get_name()))
+									   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
 									   .utf8()
 									   .ptr());
 				} else {
@@ -335,7 +339,7 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 						entry.setTrackEnd(FLT_MAX);
 						if (debug)
 							print_line(String("Setting empty animation with mix_duration {0} on track {1} on {2}")
-										   .format(varray(mix_duration, track_index, sprite->get_name()))
+										   .format(varray(mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
 										   .utf8()
 										   .ptr());
 					}
@@ -479,7 +483,7 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 
 					if (debug)
 						print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
-									   .format(varray(animation_name, mix_duration, track_index, sprite->get_name()))
+									   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
 									   .utf8()
 									   .ptr());
 				} else {
@@ -488,7 +492,7 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 						entry.setTrackEnd(FLT_MAX);
 						if (debug)
 							print_line(String("Setting empty animation with mix_duration {0} on track {1} on {2}")
-										   .format(varray(mix_duration, track_index, sprite->get_name()))
+										   .format(varray(mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
 										   .utf8()
 										   .ptr());
 					}

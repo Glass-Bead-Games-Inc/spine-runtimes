@@ -1,0 +1,65 @@
+[gd_scene format=3 uid="uid://tvtvecnxgbv2"]
+
+[ext_resource type="Script" uid="uid://dyyn8g24pyuvk" path="res://SpineSprite3DDemo.gd" id="1_script"]
+[ext_resource type="SpineSkeletonDataResource" uid="uid://cb6rn6vonqbx0" path="res://assets/spineboy/spineboy-data-res.tres" id="2_data"]
+
+[sub_resource type="PlaneMesh" id="1_planemesh"]
+size = Vector2(40, 40)
+
+[sub_resource type="BoxMesh" id="2_boxmesh"]
+size = Vector3(1.5, 6, 1.5)
+
+[sub_resource type="BoxMesh" id="3_cubemesh"]
+size = Vector3(2, 0.5, 0.5)
+
+[node name="SpineSprite3DDemo" type="Node3D" unique_id=1090740725]
+script = ExtResource("1_script")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=956895775]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 18)
+current = true
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1068531297]
+transform = Transform3D(0.8096981, 0.50449103, -0.29979634, 0.046573944, 0.45400625, 0.88978046, 0.5849957, -0.7344162, 0.34411186, 11.479919, 5, 7.9193707)
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=1959389903]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0)
+visible = false
+mesh = SubResource("1_planemesh")
+
+[node name="Pillar" type="MeshInstance3D" parent="." unique_id=1835796180]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1, 6)
+mesh = SubResource("2_boxmesh")
+
+[node name="SpineboyFreeOriented" type="SpineSprite3D" parent="." unique_id=314158241]
+skeleton_data_res = ExtResource("2_data")
+preview_skin = "default"
+preview_animation = "walk"
+preview_frame = true
+preview_time = 1.0
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, 0)
+
+[node name="GunBoneNode" type="SpineBoneNode3D" parent="SpineboyFreeOriented" unique_id=1827936243]
+bone_name = "gun"
+transform = Transform3D(0.64041525, -0.7680286, 0, -0.768029, -0.6404153, 0, 0, 0, 1, 1.020311, 2.5601392, 0)
+
+[node name="GunCube" type="MeshInstance3D" parent="SpineboyFreeOriented/GunBoneNode" unique_id=1163850269]
+mesh = SubResource("3_cubemesh")
+
+[node name="SpineboyBillboard" type="SpineSprite3D" parent="." unique_id=527343048]
+skeleton_data_res = ExtResource("2_data")
+billboard = 1
+preview_skin = "Default"
+preview_animation = "-- Empty --"
+preview_frame = false
+preview_time = 0.0
+
+[node name="SpineboyShaded" type="SpineSprite3D" parent="." unique_id=186458051]
+skeleton_data_res = ExtResource("2_data")
+z_spacing = 0.001
+shaded = true
+preview_skin = "Default"
+preview_animation = "-- Empty --"
+preview_frame = false
+preview_time = 0.0
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 2)

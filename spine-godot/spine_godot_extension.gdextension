@@ -38,3 +38,16 @@ web.debug.threads.wasm32 = "web/libspine_godot.web.template_debug.wasm32.wasm"
 web.release.threads.wasm32 = "web/libspine_godot.web.template_release.wasm32.wasm"
 web.debug.wasm32 = "web/libspine_godot.web.template_debug.wasm32.nothreads.wasm"
 web.release.wasm32 = "web/libspine_godot.web.template_release.wasm32.nothreads.wasm"
+
+[icons]
+; Paths are relative to this .gdextension file (resolved against its directory),
+; so the SVGs live next to it in bin/icons/. SpineAnimationTrack is module-only
+; (not present in the GDExtension build) and is intentionally omitted.
+
+SpineSprite = "icons/SpineSprite.svg"
+SpineSprite3D = "icons/SpineSprite3D.svg"
+SpineSlotNode = "icons/SpineSlotNode.svg"
+SpineBoneNode = "icons/SpineBoneNode.svg"
+SpineAtlasResource = "icons/SpineAtlasResource.svg"
+SpineSkeletonDataResource = "icons/SpineSkeletonDataResource.svg"
+SpineSkeletonFileResource = "icons/SpineSkeletonFileResource.svg"

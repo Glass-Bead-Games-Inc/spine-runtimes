@@ -74,6 +74,9 @@ if [ $dev == "true" ]; then
 fi
 
 cp spine_godot_extension.gdextension example-v4-extension/bin
+# Ship the editor icons next to the .gdextension (referenced relatively in its [icons] section)
+mkdir -p example-v4-extension/bin/icons
+cp spine_godot/icons/Spine*.svg example-v4-extension/bin/icons/
 rm -rf spine_godot/spine-cpp
 cp -r ../spine-cpp spine_godot
 

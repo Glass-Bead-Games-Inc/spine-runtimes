@@ -51,11 +51,14 @@ class SpineSkeleton : public REFCOUNTED {
 	friend class SpineSlot;
 	friend class SpineTimeline;
 	friend class SpineSprite;
+	friend class SpineSprite3D;
 	friend class SpineAnimation;
 	friend class SpineAnimationState;
 	friend class SpineAnimationTrack;
 	friend class SpineBoneNode;
 	friend class SpineSlotNode;
+	friend class SpineBoneNode3D;
+	friend class SpineSlotNode3D;
 	friend class SpinePhysicsConstraint;
 	friend class SpineIkConstraint;
 	friend class SpineTransformConstraint;
@@ -67,18 +70,18 @@ class SpineSkeleton : public REFCOUNTED {
 protected:
 	static void _bind_methods();
 
-	void set_spine_sprite(SpineSprite *_sprite);
+	void set_spine_sprite(SpineSpriteOwner *_owner);
 	spine::Skeleton *get_spine_object() {
 		return skeleton;
 	}
-	SpineSprite *get_spine_owner() {
+	SpineSpriteOwner *get_spine_owner() {
 		return sprite;
 	}
 	Ref<SpineSkeletonDataResource> get_skeleton_data_res() const;
 
 private:
 	spine::Skeleton *skeleton;
-	SpineSprite *sprite;
+	SpineSpriteOwner *sprite;
 	spine::Array<float> bounds_vertex_buffer;
 	Ref<SpineSkin> last_skin;
 

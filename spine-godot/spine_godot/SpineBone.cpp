@@ -184,26 +184,32 @@ void SpineBone::set_transform(Transform2D transform) {
 
 Transform2D SpineBone::get_global_transform() {
 	SPINE_CHECK(get_spine_object(), Transform2D())
-	if (!get_spine_owner()) return get_transform();
-	if (!get_spine_owner()->is_visible_in_tree()) return get_transform();
+	// The 2D global transform only applies to SpineSprite (Node2D). For a 3D owner
+	// (SpineSprite3D) or no owner, fall back to the local transform; 3D bone
+	// transforms are provided separately.
+	SpineSprite *sprite2d = get_spine_owner() ? Object::cast_to<SpineSprite>(get_spine_owner()->owner_as_node()) : nullptr;
+	if (!sprite2d || !sprite2d->is_visible_in_tree()) return get_transform();
 	auto &applied_pose = get_spine_object()->getAppliedPose();
 	Transform2D local;
 	local[0] = Vector2(applied_pose.getA(), applied_pose.getC());
 	local[1] = Vector2(applied_pose.getB(), applied_pose.getD());
 	local[2] = Vector2(applied_pose.getWorldX(), applied_pose.getWorldY());
-	return get_spine_owner()->get_global_transform() * local;
+	return sprite2d->get_global_transform() * local;
 }
 
 void SpineBone::set_global_transform(Transform2D transform) {
 	SPINE_CHECK(get_spine_object(), )
-	if (!get_spine_owner()) {
-		set_transform(transform);
-		return;
+	// The 2D global transform only applies to SpineSprite (Node2D). For a 3D owner
+	// (SpineSprite3D) the 2D API no-ops; with no owner it falls back to the local transform.
+	SpineSprite *sprite2d = get_spine_owner() ? Object::cast_to<SpineSprite>(get_spine_owner()->owner_as_node()) : nullptr;
+	if (!sprite2d) {
+		if (!get_spine_owner()) set_transform(transform);// no owner: store locally (preserves prior behavior)
+		return;                                          // 3D owner: 2D transform API is a no-op
 	}
-	if (!get_spine_owner()->is_visible_in_tree()) return;
+	if (!sprite2d->is_visible_in_tree()) return;
 
 	auto bone = get_spine_object();
-	Transform2D inverse_sprite_transform = get_spine_owner()->get_global_transform().affine_inverse();
+	Transform2D inverse_sprite_transform = sprite2d->get_global_transform().affine_inverse();
 	Transform2D local = inverse_sprite_transform * transform;
 	auto &applied_pose = bone->getAppliedPose();
 	applied_pose.setA(local[0].x);

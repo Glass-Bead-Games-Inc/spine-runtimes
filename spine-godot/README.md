@@ -19,3 +19,5 @@ For the official legal terms governing the Spine Runtimes, please read the [Spin
 spine-godot works with data exported from Spine 4.3.xx.
 
 spine-godot supports all Spine features, except two-color tinting and the screen blend mode.
+
+spine-godot provides SpineSprite (2D) and SpineSprite3D (3D) nodes; SpineSprite3D renders skeletons in 3D scenes with configurable billboard and optional lighting.
