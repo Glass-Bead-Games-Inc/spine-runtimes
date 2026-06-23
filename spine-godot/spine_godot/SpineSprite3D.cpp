@@ -54,12 +54,15 @@
 #include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/mesh.hpp>
+#include <godot_cpp/classes/image.hpp>        // Fix #2: Texture2D::get_image() return type
+#include <godot_cpp/classes/image_texture.hpp>// Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
 #include <godot_cpp/variant/variant.hpp>
 #else
 #include "scene/resources/shader.h"
 #include "scene/resources/material.h"// declares ShaderMaterial (no separate shader_material.h in 4.x)
 #include "scene/resources/mesh.h"
-#include "core/config/engine.h"// Engine::get_singleton(); not transitively included in Godot 4.7
+#include "scene/resources/image_texture.h"// Fix #2: ImageTexture / Texture2D (3D-safe copy path is extension-only, kept for parity)
+#include "core/config/engine.h"           // Engine::get_singleton(); not transitively included in Godot 4.7
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
 #else
@@ -81,9 +84,29 @@ struct SpineSprite3DStatics {
 private:
 	static SpineSprite3DStatics *_instance;
 
+public:
+	// Map a TextureFilter value to the GLSL sampler hint token used in the shader source.
+	// Shared by build_shader_source (below) and callers. Kept in the statics struct so both
+	// the shader generator and any external caller can reach it.
+	static const char *texture_filter_hint(SpineSprite3D::TextureFilter f) {
+		switch (f) {
+			case SpineSprite3D::TEXTURE_FILTER_NEAREST:
+				return "filter_nearest";
+			case SpineSprite3D::TEXTURE_FILTER_NEAREST_MIPMAP:
+				return "filter_nearest_mipmap";
+			case SpineSprite3D::TEXTURE_FILTER_LINEAR_MIPMAP:
+				return "filter_linear_mipmap";
+			case SpineSprite3D::TEXTURE_FILTER_LINEAR:
+			default:
+				return "filter_linear";
+		}
+	}
+
+private:
 	// Build GLSL source for the requested variant.
 	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} x {unshaded, shaded} variants.
-	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma) {
+	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
+		const char *filter_hint = texture_filter_hint(filter);
 		// Blend mode -> render_mode token
 		String rm;
 		switch (blend) {
@@ -126,7 +149,9 @@ private:
 			return String("shader_type spatial;\n") + "render_mode " + rm +
 				", cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
 				"\n"
-				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
+				"uniform sampler2D albedo_tex : source_color, " +
+				filter_hint +
+				";\n"
 				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
 				"\n" +
 				vertex_fn +
@@ -145,9 +170,15 @@ private:
 			return String("shader_type spatial;\n") + "render_mode " + rm +
 				", cull_disabled, depth_draw_opaque;\n"
 				"\n"
-				"uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;\n"
-				"uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap;\n"
-				"uniform sampler2D specular_tex : source_color, filter_linear_mipmap;\n"
+				"uniform sampler2D albedo_tex : source_color, " +
+				filter_hint +
+				";\n"
+				"uniform sampler2D normal_tex : hint_normal, " +
+				filter_hint +
+				";\n"
+				"uniform sampler2D specular_tex : source_color, " +
+				filter_hint +
+				";\n"
 				"uniform bool use_normal_tex = false;\n"
 				"uniform bool use_specular_tex = false;\n"
 				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
@@ -164,10 +195,10 @@ private:
 		}
 	}
 
-	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma) {
+	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
 		Ref<Shader> shader;
 		shader.instantiate();
-		shader->set_code(build_shader_source(blend, shaded, pma));
+		shader->set_code(build_shader_source(blend, shaded, pma, filter));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -215,8 +246,8 @@ private:
 	}
 
 public:
-	// Cache key: blend * 4 + shaded * 2 + pma  (max index = 3*4+2+1 = 15)
-	Ref<ShaderMaterial> materials[16];
+	// Cache key: filter * 16 + blend * 4 + shaded * 2 + pma  (max index = 3*16 + 3*4+2+1 = 63)
+	Ref<ShaderMaterial> materials[64];
 	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
 	Ref<Shader> lines_shader;
 
@@ -231,10 +262,10 @@ public:
 		return lines_shader;
 	}
 
-	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma) {
-		int key = (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
+	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
+		int key = (int) filter * 16 + (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
 		if (!materials[key].is_valid()) {
-			materials[key] = make_material(blend, shaded, pma);
+			materials[key] = make_material(blend, shaded, pma, filter);
 		}
 		return materials[key];
 	}
@@ -280,6 +311,12 @@ void SpineSprite3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(BILLBOARD_DISABLED);
 	BIND_ENUM_CONSTANT(BILLBOARD_ENABLED);
 	BIND_ENUM_CONSTANT(BILLBOARD_Y);
+	ClassDB::bind_method(D_METHOD("set_texture_filter", "v"), &SpineSprite3D::set_texture_filter);
+	ClassDB::bind_method(D_METHOD("get_texture_filter"), &SpineSprite3D::get_texture_filter);
+	BIND_ENUM_CONSTANT(TEXTURE_FILTER_NEAREST);
+	BIND_ENUM_CONSTANT(TEXTURE_FILTER_LINEAR);
+	BIND_ENUM_CONSTANT(TEXTURE_FILTER_NEAREST_MIPMAP);
+	BIND_ENUM_CONSTANT(TEXTURE_FILTER_LINEAR_MIPMAP);
 	ClassDB::bind_method(D_METHOD("set_shaded", "v"), &SpineSprite3D::set_shaded);
 	ClassDB::bind_method(D_METHOD("get_shaded"), &SpineSprite3D::get_shaded);
 
@@ -363,6 +400,8 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "get_flip_h");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabled,Enabled,Y-Billboard"), "set_billboard", "get_billboard");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "texture_filter", PROPERTY_HINT_ENUM, "Nearest,Linear,Nearest Mipmap,Linear Mipmap"),
+				 "set_texture_filter", "get_texture_filter");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shaded"), "set_shaded", "get_shaded");
 	ADD_GROUP("Materials", "");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "normal_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_normal_material",
@@ -394,8 +433,8 @@ void SpineSprite3D::_bind_methods() {
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
-	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), shaded(false), preview_skin("Default"),
-	  preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
+	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), texture_filter(TEXTURE_FILTER_LINEAR),
+	  shaded(false), preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
 	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
 	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)), debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)),
 	  debug_bones_thickness(5.0f), debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)), debug_meshes(false),
@@ -449,6 +488,8 @@ void SpineSprite3D::on_skeleton_data_changed() {
 	set_base(RID());
 	// Task 4: clear per-instance material cache; textures change with skeleton data
 	material_cache.clear();
+	// Fix #2: textures change with the skeleton data, so any cached 3D-safe copies are stale.
+	texture_3d_cache.clear();
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
 
 	if (skeleton_data_res.is_valid()) {
@@ -553,6 +594,52 @@ struct SpineSprite3DLocalSurface {
 	bool shaded = false;
 	RID material;// resolved material RID for this surface (RID() if none assigned)
 };
+
+// Fix #2: avoid Godot's "texture used in 3D" automatic reimport, which re-imports the
+// imported atlas texture with mipmaps + VRAM compression and corrupts packed atlases.
+//
+// The two builds need different strategies because the module-only RenderingServer API
+// (texture_set_detect_3d_callback) is not exposed by godot-cpp:
+//   - MODULE: clear the detect-3D callback on the texture's RID so the editor never queues
+//     a reimport, then keep using the same imported texture (no copy, no VRAM cost).
+//   - GDEXTENSION: there is no way to suppress the callback, so render an ImageTexture COPY
+//     of the image instead. The imported resource itself never enters a 3D draw, so the
+//     editor never flags it. Copies are cached (keyed on the original rid) so this happens
+//     at most once per texture.
+//
+// The caller keeps its per-(variant,texture) cache keyed on the ORIGINAL texture rid, so the
+// substitution here is transparent to that cache.
+Ref<Texture2D> SpineSprite3D::get_3d_safe_texture(const Ref<Texture> &tex) {
+	// Null/invalid input -> nothing to make safe; return an empty (null) ref.
+	if (!tex.is_valid()) return Ref<Texture2D>();
+
+	// SpineRendererObject holds Ref<Texture>; the shader sampler needs a Texture2D. Atlas
+	// textures are ImageTexture (a Texture2D), so this cast succeeds in practice.
+	Texture2D *tex2d = Object::cast_to<Texture2D>(tex.ptr());
+	if (!tex2d) return Ref<Texture2D>();
+	Ref<Texture2D> tex2d_ref(tex2d);
+
+#ifndef SPINE_GODOT_EXTENSION
+	// Module build: stop the editor from ever reimporting this texture for 3D usage.
+	// texture_set_detect_3d_callback exists in the engine; the 2nd arg is a C callback type
+	// that differs by version, but passing nullptr is type-correct on both 4.6 and 4.7.
+	RS::get_singleton()->texture_set_detect_3d_callback(tex2d_ref->get_rid(), nullptr, nullptr);
+	return tex2d_ref;
+#else
+	// GDExtension build: render an ImageTexture copy so the imported resource never draws in 3D.
+	// A runtime ImageTexture (no resource path) is already safe — use it directly.
+	if (tex2d_ref->get_path().is_empty()) return tex2d_ref;
+
+	uint64_t rid_id = (uint64_t) tex2d_ref->get_rid().get_id();
+	if (texture_3d_cache.has(rid_id)) return texture_3d_cache[rid_id];
+
+	Ref<Image> img = tex2d_ref->get_image();
+	if (img.is_null() || img->is_empty()) return tex2d_ref;
+	Ref<ImageTexture> it = ImageTexture::create_from_image(img);
+	texture_3d_cache[rid_id] = it;
+	return it;
+#endif
+}
 
 void SpineSprite3D::build_meshes() {
 	// F1/F6: if there is no skeleton, clear the instance base (the mesh RID, if any,
@@ -667,8 +754,10 @@ void SpineSprite3D::build_meshes() {
 			// / no cull). We cannot safely mutate a user's material here.
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
-			// Build cache key: variant bits in top byte, texture RID in lower 56 bits
-			uint64_t variant_bits = (uint64_t) ((int) current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
+			// Build cache key: variant bits (incl. texture_filter) in top byte, texture RID in lower 56 bits.
+			// max variant = 3*64 + 3*4+2+1 = 207, fits in the top byte. The cache key stays keyed on the
+			// ORIGINAL texture rid (not the 3D-safe copy), so it is stable across frames.
+			uint64_t variant_bits = (uint64_t) ((int) texture_filter * 64 + (int) current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
 			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
 			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
 
@@ -677,17 +766,17 @@ void SpineSprite3D::build_meshes() {
 				mat = material_cache[cache_key];
 			} else {
 				// Clone the shared shader variant into a fresh per-(variant,texture) material
-				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma);
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter);
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
-				mat->set_shader_parameter("albedo_tex", current_ro->texture);
+				mat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
 				mat->set_shader_parameter("billboard_mode", (int) billboard);
 				if (shaded) {
 					bool has_normal = current_ro->normal_map.is_valid();
 					bool has_specular = current_ro->specular_map.is_valid();
-					if (has_normal) mat->set_shader_parameter("normal_tex", current_ro->normal_map);
+					if (has_normal) mat->set_shader_parameter("normal_tex", get_3d_safe_texture(current_ro->normal_map));
 					mat->set_shader_parameter("use_normal_tex", has_normal);
-					if (has_specular) mat->set_shader_parameter("specular_tex", current_ro->specular_map);
+					if (has_specular) mat->set_shader_parameter("specular_tex", get_3d_safe_texture(current_ro->specular_map));
 					mat->set_shader_parameter("use_specular_tex", has_specular);
 				}
 				material_cache[cache_key] = mat;
@@ -1452,11 +1541,27 @@ SpineSprite3D::BillboardMode SpineSprite3D::get_billboard() {
 	return billboard;
 }
 
+void SpineSprite3D::set_texture_filter(TextureFilter v) {
+	if (texture_filter == v) return;
+	texture_filter = v;
+	// The sampler hint is baked into the shader variant, and the cache key encodes the
+	// filter bits — clear the per-instance material cache (mirror set_shaded) so flush()
+	// rebuilds materials with the new filter. Also clear the 3D-safe texture cache for parity.
+	material_cache.clear();
+	texture_3d_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+SpineSprite3D::TextureFilter SpineSprite3D::get_texture_filter() {
+	return texture_filter;
+}
+
 void SpineSprite3D::set_shaded(bool v) {
 	shaded = v;
 	// Switching shaded mode invalidates the per-instance material cache since the
 	// cache key encodes the shaded bit — clear so flush() picks the correct variants.
 	material_cache.clear();
+	texture_3d_cache.clear();
 	if (skeleton.is_valid()) build_meshes();
 }
 
