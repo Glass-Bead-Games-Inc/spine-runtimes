@@ -203,41 +203,41 @@ void register_spine_godot_types() {
 #endif
 
 #ifdef SPINE_GODOT_EXTENSION
-	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
+	INSTANTIATE(atlas_loader);
 	ResourceLoader::get_singleton()->add_resource_format_loader(atlas_loader);
 
-	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
+	INSTANTIATE(atlas_saver);
 	ResourceSaver::get_singleton()->add_resource_format_saver(atlas_saver);
 
-	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
+	INSTANTIATE(skeleton_file_loader);
 	ResourceLoader::get_singleton()->add_resource_format_loader(skeleton_file_loader);
 
-	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
+	INSTANTIATE(skeleton_file_saver);
 	ResourceSaver::get_singleton()->add_resource_format_saver(skeleton_file_saver);
 #else
 #if VERSION_MAJOR > 3
-	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
+	INSTANTIATE(atlas_loader);
 	ResourceLoader::add_resource_format_loader(atlas_loader);
 
-	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
+	INSTANTIATE(atlas_saver);
 	ResourceSaver::add_resource_format_saver(atlas_saver);
 
-	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
+	INSTANTIATE(skeleton_file_loader);
 	ResourceLoader::add_resource_format_loader(skeleton_file_loader);
 
-	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
+	INSTANTIATE(skeleton_file_saver);
 	ResourceSaver::add_resource_format_saver(skeleton_file_saver);
 #else
-	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
+	INSTANTIATE(atlas_loader);
 	ResourceLoader::add_resource_format_loader(atlas_loader);
 
-	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
+	INSTANTIATE(atlas_saver);
 	ResourceSaver::add_resource_format_saver(atlas_saver);
 
-	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
+	INSTANTIATE(skeleton_file_loader);
 	ResourceLoader::add_resource_format_loader(skeleton_file_loader);
 
-	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
+	INSTANTIATE(skeleton_file_saver);
 	ResourceSaver::add_resource_format_saver(skeleton_file_saver);
 #endif
 #endif
