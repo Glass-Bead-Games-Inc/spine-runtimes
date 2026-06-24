@@ -52,6 +52,7 @@
 #include <godot_cpp/classes/geometry_instance3d.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
+#include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/templates/hash_map.hpp>
 #else
@@ -81,6 +82,16 @@ public:
 		BILLBOARD_Y = 2,
 	};
 
+	// Texture sampler filter for the auto-generated 3D shaders. Mipmap filters can
+	// corrupt packed atlases (sampling bleeds across atlas regions at lower mips), so
+	// linear (no mipmap) is the default.
+	enum TextureFilter {
+		TEXTURE_FILTER_NEAREST = 0,
+		TEXTURE_FILTER_LINEAR = 1,
+		TEXTURE_FILTER_NEAREST_MIPMAP = 2,
+		TEXTURE_FILTER_LINEAR_MIPMAP = 3,
+	};
+
 protected:
 	Ref<SpineSkeletonDataResource> skeleton_data_res;
 	Ref<SpineSkeleton> skeleton;
@@ -102,6 +113,9 @@ protected:
 
 	// Task 5: billboard mode
 	BillboardMode billboard;
+
+	// Texture sampler filter (drives the shader sampler hint for albedo/normal/specular).
+	TextureFilter texture_filter;
 
 	// Task 6: shaded mode
 	bool shaded;
@@ -158,6 +172,11 @@ protected:
 	// Encoding: key = ((uint64_t)(blend * 4 + shaded * 2 + pma) << 56) | texture_rid_id
 	HashMap<uint64_t, Ref<ShaderMaterial>> material_cache;
 
+	// Fix #2 (GDExtension only path): cache of 3D-safe ImageTexture copies keyed by the
+	// original texture's RID id. In the module build get_3d_safe_texture clears the
+	// detect-3D callback instead and never populates this. Cleared wherever material_cache is.
+	HashMap<uint64_t, Ref<Texture2D>> texture_3d_cache;
+
 	// Fix #10: per-surface cache for the build_meshes() fast path. When the surface
 	// topology (count, per-surface vertex/index counts, index contents and chosen
 	// material RID) is identical to the previous frame, build_meshes() updates the
@@ -198,6 +217,14 @@ protected:
 	void build_meshes();
 	void build_debug_mesh();// Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
 
+	// Fix #2: return a texture safe to use in a 3D draw without triggering Godot's
+	// "texture used in 3D" auto-reimport (which adds mipmaps + VRAM compression and
+	// corrupts packed atlases). Module build clears the RS detect-3D callback; the
+	// GDExtension build (which lacks that API) returns a cached ImageTexture copy.
+	// Input is a Ref<Texture> (the SpineRendererObject member type); the returned
+	// Ref<Texture2D> is what the shader sampler binds to.
+	Ref<Texture2D> get_3d_safe_texture(const Ref<Texture> &tex);
+
 public:
 	SpineSprite3D();
 	~SpineSprite3D();
@@ -233,6 +260,10 @@ public:
 	// Task 5: billboard mode
 	void set_billboard(BillboardMode v);
 	BillboardMode get_billboard();
+
+	// Texture sampler filter
+	void set_texture_filter(TextureFilter v);
+	TextureFilter get_texture_filter();
 
 	// Task 6: shaded mode
 	void set_shaded(bool v);
@@ -349,5 +380,6 @@ public:
 };
 
 VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)
+VARIANT_ENUM_CAST(SpineSprite3D::TextureFilter)
 
 #endif// _3D_DISABLED
