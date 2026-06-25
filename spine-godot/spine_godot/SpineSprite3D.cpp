@@ -105,8 +105,13 @@ public:
 private:
 	// Build GLSL source for the requested variant.
 	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} x {unshaded, shaded} variants.
-	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
+	// `casts`: when false the variant opts out of shadows entirely (shadows_disabled); when true it
+	// uses depth_prepass_alpha so the alpha-blended material casts a shaped (alpha-cutout) shadow
+	// honoring the inherited GeometryInstance3D cast_shadow setting.
+	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
 		const char *filter_hint = texture_filter_hint(filter);
+		// Shadow render_mode token: cast a shaped alpha-cutout shadow when casting, otherwise opt out.
+		const char *shadow_rm = casts ? "depth_prepass_alpha" : "shadows_disabled";
 		// Blend mode -> render_mode token
 		String rm;
 		switch (blend) {
@@ -146,8 +151,8 @@ private:
 			String frag = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
 							  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") + "render_mode " + rm +
-				", cull_disabled, unshaded, depth_draw_opaque, shadows_disabled;\n"
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_opaque, " + shadow_rm +
+				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
 				filter_hint +
@@ -167,8 +172,8 @@ private:
 			String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
 									  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") + "render_mode " + rm +
-				", cull_disabled, depth_draw_opaque;\n"
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, depth_draw_opaque, " + shadow_rm +
+				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
 				filter_hint +
@@ -195,10 +200,10 @@ private:
 		}
 	}
 
-	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
+	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
 		Ref<Shader> shader;
 		shader.instantiate();
-		shader->set_code(build_shader_source(blend, shaded, pma, filter));
+		shader->set_code(build_shader_source(blend, shaded, pma, filter, casts));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -246,8 +251,8 @@ private:
 	}
 
 public:
-	// Cache key: filter * 16 + blend * 4 + shaded * 2 + pma  (max index = 3*16 + 3*4+2+1 = 63)
-	Ref<ShaderMaterial> materials[64];
+	// Cache key: casts * 64 + filter * 16 + blend * 4 + shaded * 2 + pma  (max index = 64 + 3*16 + 3*4+2+1 = 127)
+	Ref<ShaderMaterial> materials[128];
 	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
 	Ref<Shader> lines_shader;
 
@@ -262,10 +267,10 @@ public:
 		return lines_shader;
 	}
 
-	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter) {
-		int key = (int) filter * 16 + (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
+	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
+		int key = (casts ? 64 : 0) + (int) filter * 16 + (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
 		if (!materials[key].is_valid()) {
-			materials[key] = make_material(blend, shaded, pma, filter);
+			materials[key] = make_material(blend, shaded, pma, filter, casts);
 		}
 		return materials[key];
 	}
@@ -442,6 +447,11 @@ SpineSprite3D::SpineSprite3D()
 	  debug_paths_color(Color::hex(0xff7f0077)), debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)),
 	  debug_active_last_frame(false) {
 	scratch_world_verts.ensureCapacity(1200);
+	// Shadow casting: GeometryInstance3D defaults cast_shadow to ON, which would make every
+	// SpineSprite3D suddenly cast and change its depth behavior (depth_prepass_alpha). Default
+	// it OFF so existing rendering is byte-identical until the user opts in via the inherited
+	// cast_shadow setting; build_meshes() reads get_cast_shadows_setting() to pick the variant.
+	set_cast_shadows_setting(SHADOW_CASTING_SETTING_OFF);
 }
 
 SpineSprite3D::~SpineSprite3D() {
@@ -661,6 +671,11 @@ void SpineSprite3D::build_meshes() {
 	spine::Skeleton *sk = skeleton->get_spine_object();
 	auto &statics = SpineSprite3DStatics::instance();
 
+	// Shadow casting: honor the inherited GeometryInstance3D cast_shadow setting. When any casting
+	// mode is selected, the generated shader uses depth_prepass_alpha to cast a shaped (alpha-cutout)
+	// shadow; OFF keeps shadows_disabled. Computed once here and threaded into the material/cache keys.
+	const bool casts = get_cast_shadows_setting() != SHADOW_CASTING_SETTING_OFF;
+
 	AABB aabb;
 	bool aabb_init = false;
 	// F12: track the max distance from the model origin (0,0,0) to any vertex.
@@ -754,10 +769,11 @@ void SpineSprite3D::build_meshes() {
 			// / no cull). We cannot safely mutate a user's material here.
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
-			// Build cache key: variant bits (incl. texture_filter) in top byte, texture RID in lower 56 bits.
-			// max variant = 3*64 + 3*4+2+1 = 207, fits in the top byte. The cache key stays keyed on the
+			// Build cache key: variant bits (incl. casts + texture_filter) in top byte, texture RID in lower 56 bits.
+			// max variant = 64 + 3*16 + 3*4+2+1 = 127, fits in the top byte. The cache key stays keyed on the
 			// ORIGINAL texture rid (not the 3D-safe copy), so it is stable across frames.
-			uint64_t variant_bits = (uint64_t) ((int) texture_filter * 64 + (int) current_blend * 4 + (shaded ? 2 : 0) + (current_pma ? 1 : 0));
+			uint64_t variant_bits = (uint64_t) ((casts ? 64 : 0) + (int) texture_filter * 16 + (int) current_blend * 4 + (shaded ? 2 : 0) +
+												(current_pma ? 1 : 0));
 			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
 			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
 
@@ -766,7 +782,7 @@ void SpineSprite3D::build_meshes() {
 				mat = material_cache[cache_key];
 			} else {
 				// Clone the shared shader variant into a fresh per-(variant,texture) material
-				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter);
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter, casts);
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
 				mat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
