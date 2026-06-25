@@ -30,30 +30,30 @@
 		}
 
 		initialize(canvas) {
-			let assetManager = canvas.assetManager;
+			const assetManager = canvas.assetManager;
 
 			// Create the atlas
-			let atlas = canvas.assetManager.require("mix-and-match-pma.atlas");
-			let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+			const atlas = canvas.assetManager.require("mix-and-match-pma.atlas");
+			const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 
 			// Create the skeleton
-			let skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+			const skeletonBinary = new spine.SkeletonBinary(atlasLoader);
 			skeletonBinary.scale = 0.5;
-			let skeletonData = skeletonBinary.readSkeletonData(assetManager.require("mix-and-match-pro.skel"));
-			let stateData = new spine.AnimationStateData(skeletonData);
+			const skeletonData = skeletonBinary.readSkeletonData(assetManager.require("mix-and-match-pro.skel"));
+			const stateData = new spine.AnimationStateData(skeletonData);
 
 			for (var i = 0; i < this.numSkeletons; i++) {
-				let skeleton = new spine.Skeleton(skeletonData);
+				const skeleton = new spine.Skeleton(skeletonData);
 
 				// Create the animation state
-				let state = new spine.AnimationState(stateData);
+				const state = new spine.AnimationState(stateData);
 				state.setAnimation(0, "dance", true);
 
 				// Create a new skin, by mixing and matching other skins
 				// that fit together. Items making up the girl are individual
 				// skins. Using the skin API, a new skin is created which is
 				// a combination of all these individual item skins.
-				let mixAndMatchSkin = new spine.Skin("custom-girl");
+				const mixAndMatchSkin = new spine.Skin("custom-girl");
 				mixAndMatchSkin.addSkin(skeletonData.findSkin("skin-base"));
 				mixAndMatchSkin.addSkin(skeletonData.findSkin("nose/short"));
 				mixAndMatchSkin.addSkin(skeletonData.findSkin("eyelids/girly"));
@@ -74,8 +74,8 @@
 
 		update(canvas, delta) {
 			for (var i = 0; i < this.numSkeletons; i++) {
-				let state = this.states[i];
-				let skeleton = this.skeletons[i];
+				const state = this.states[i];
+				const skeleton = this.skeletons[i];
 				state.update(delta);
 				state.apply(skeleton);
 				skeleton.updateWorldTransform(spine.Physics.update);
@@ -83,12 +83,12 @@
 		}
 
 		render(canvas) {
-			let renderer = canvas.renderer;
+			const renderer = canvas.renderer;
 			renderer.resize(spine.ResizeMode.Expand);
 			canvas.clear(0.2, 0.2, 0.2, 1);
 			renderer.begin();
 			for (var i = 0; i < this.numSkeletons; i++) {
-				let skeleton = this.skeletons[i];
+				const skeleton = this.skeletons[i];
 				renderer.drawSkeleton(skeleton, true);
 			}
 			renderer.end();

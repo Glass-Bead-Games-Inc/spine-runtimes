@@ -194,8 +194,8 @@
                 let time = 0;
                 let maxTime = 1000;
                 let ammoLocationActive = false;
-                let gameVectorTemp = new spine.Vector3();
-                let interval = setInterval(() => {
+                const gameVectorTemp = new spine.Vector3();
+                const interval = setInterval(() => {
 
                     if (!ammoLocationActive && ammo <= 2) {
                         ammoLocationActive = true;

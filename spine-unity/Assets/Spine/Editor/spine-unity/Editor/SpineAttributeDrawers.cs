@@ -651,7 +651,7 @@ namespace Spine.Unity.Editor {
 					BoneData iterator = bone;
 					while ((iterator = iterator.Parent) != null) {
 #if MENU_REQUIRES_DIFFERENT_NESTED_NAME
-						jointName = string.Format("{0} /{1}", iterator.Name, jointName);
+						jointName = string.Format("{0}\u00A0/{1}", iterator.Name, jointName);
 #else
 						jointName = string.Format("{0}/{1}", iterator.Name, jointName);
 #endif

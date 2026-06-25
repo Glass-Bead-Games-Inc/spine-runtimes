@@ -556,6 +556,27 @@ export class Spine extends Container {
 		super.destroy(options);
 	}
 
+	/**
+	 * Unloads this Spine object's cached {@link SkeletonData}.
+	 *
+	 * Existing Spine objects that use this SkeletonData continue to work. Future Spine objects created with the same
+	 * skeleton, atlas, and scale will parse a new SkeletonData.
+	 * @returns `true` if the cached SkeletonData was removed, otherwise `false`.
+	 */
+	public unloadFromCache (): boolean {
+		const skeletonData = this.skeleton?.data;
+		if (!skeletonData) return false;
+
+		const cacheKey = Spine.skeletonDataCacheKeys.get(skeletonData);
+
+		if (!cacheKey || Spine.skeletonCache[cacheKey] !== skeletonData) return false;
+
+		delete Spine.skeletonCache[cacheKey];
+		Spine.skeletonDataCacheKeys.delete(skeletonData);
+
+		return true;
+	}
+
 	private resetMeshes (): void {
 		for (const [, mesh] of this.meshesCache) {
 			mesh.zIndex = -1;
@@ -1037,6 +1058,12 @@ export class Spine extends Container {
 	/** A cache containing skeleton data and atlases already loaded by {@link Spine.from}. */
 	public static readonly skeletonCache: Record<string, SkeletonData> = Object.create(null);
 
+	private static readonly skeletonDataCacheKeys = new WeakMap<SkeletonData, string>();
+
+	private static getSkeletonCacheKey ({ skeleton, atlas, scale = 1 }: Pick<SpineFromOptions, "skeleton" | "atlas" | "scale">): string {
+		return `${skeleton}-${atlas}-${scale}`;
+	}
+
 	/**
 	 * Get a convenient initialization configuration for your Spine game object.
 	 * Before instantiating a Spine game object, the skeleton (`.skel` or `.json`) and the atlas text files must be loaded into the Assets. For example:
@@ -1052,7 +1079,7 @@ export class Spine extends Container {
 	 * @returns {SpineOptions} The configuration ready to be passed to the Spine constructor
 	 */
 	public static createOptions ({ skeleton, atlas, scale = 1, darkTint, autoUpdate = true, boundsProvider, allowMissingRegions, ticker }: SpineFromOptions): SpineOptions {
-		const cacheKey = `${skeleton}-${atlas}-${scale}`;
+		const cacheKey = Spine.getSkeletonCacheKey({ skeleton, atlas, scale });
 
 		let skeletonData = Spine.skeletonCache[cacheKey];
 		if (!skeletonData) {
@@ -1065,6 +1092,7 @@ export class Spine extends Container {
 			skeletonData = parser.readSkeletonData(skeletonAsset);
 			Spine.skeletonCache[cacheKey] = skeletonData;
 		}
+		Spine.skeletonDataCacheKeys.set(skeletonData, cacheKey);
 		return { skeletonData, darkTint, autoUpdate, boundsProvider, ticker };
 	}
 

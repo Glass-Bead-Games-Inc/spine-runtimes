@@ -29,20 +29,20 @@
 		}
 
 		initialize(canvas) {
-			let assetManager = canvas.assetManager;
+			const assetManager = canvas.assetManager;
 
 			// Create the atlas
-			let atlas = canvas.assetManager.require("mix-and-match-pma.atlas");
-			let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+			const atlas = canvas.assetManager.require("mix-and-match-pma.atlas");
+			const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 
 			// Create the skeleton
-			let skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+			const skeletonBinary = new spine.SkeletonBinary(atlasLoader);
 			skeletonBinary.scale = 1;
-			let skeletonData = skeletonBinary.readSkeletonData(assetManager.require("mix-and-match-pro.skel"));
+			const skeletonData = skeletonBinary.readSkeletonData(assetManager.require("mix-and-match-pro.skel"));
 			this.skeleton = new spine.Skeleton(skeletonData);
 
 			// Create the animation state
-			let stateData = new spine.AnimationStateData(skeletonData);
+			const stateData = new spine.AnimationStateData(skeletonData);
 			this.state = new spine.AnimationState(stateData);
 			this.state.setAnimation(0, "dance", true);
 
@@ -50,7 +50,7 @@
 			// that fit together. Items making up the girl are individual
 			// skins. Using the skin API, a new skin is created which is
 			// a combination of all these individual item skins.
-			let mixAndMatchSkin = new spine.Skin("custom-girl");
+			const mixAndMatchSkin = new spine.Skin("custom-girl");
 			mixAndMatchSkin.addSkin(skeletonData.findSkin("skin-base"));
 			mixAndMatchSkin.addSkin(skeletonData.findSkin("nose/short"));
 			mixAndMatchSkin.addSkin(skeletonData.findSkin("eyelids/girly"));
@@ -70,7 +70,7 @@
 		}
 
 		render(canvas) {
-			let renderer = canvas.renderer;
+			const renderer = canvas.renderer;
 			renderer.resize(spine.ResizeMode.Expand);
 			canvas.clear(0.2, 0.2, 0.2, 1);
 			renderer.begin();

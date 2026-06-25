@@ -126,10 +126,11 @@ class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsConstraintD
 			rotateOrShearX = data.rotate > 0 || data.shearX > 0,
 			scaleX = data.scaleX > 0;
 		var l = bone.bone.data.length, t = data.step, z = 0.;
+		if (physics == Physics.none)
+			return;
+		bone.modifyWorld(skeleton);
 
 		switch (physics) {
-			case Physics.none:
-				return;
 			case Physics.reset, Physics.update:
 				if (physics == Physics.reset)
 					reset(skeleton);
@@ -314,7 +315,6 @@ class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsConstraintD
 			tx = l * bone.a;
 			ty = l * bone.c;
 		}
-		bone.modifyWorld(skeleton._update);
 	}
 
 	public function sort(skeleton:Skeleton) {

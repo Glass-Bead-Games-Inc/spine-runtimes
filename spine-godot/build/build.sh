@@ -58,7 +58,9 @@ if [ `uname` == 'Darwin' ] && [ $dev = "false" ]; then
 	popd
 else
 	if [ "$OSTYPE" = "msys" ] || [ "$RUNNER_OS" = "Windows" ]; then
-		target="$target vsproj=yes livepp=$LIVEPP"
+		if [ ! -z "${LIVEPP:-}" ]; then
+			target="$target livepp=$LIVEPP"
+		fi
 	fi
 	scons $target compiledb=yes custom_modules="../spine_godot" --jobs=$cpus
 	cp compile_commands.json ../build

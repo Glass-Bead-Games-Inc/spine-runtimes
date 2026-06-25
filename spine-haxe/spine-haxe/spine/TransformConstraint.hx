@@ -72,16 +72,15 @@ class TransformConstraint extends Constraint<TransformConstraint, TransformConst
 		if (localSource)
 			source.validateLocalTransform(skeleton);
 		var fromItems = data.properties;
-		var fn = data.properties.length, update = skeleton.update;
+		var fn = data.properties.length;
 		var bones = this.bones;
 		var i = 0, n = this.bones.length;
-		var update = skeleton._update;
 		while (i < n) {
 			var bone = bones[i];
 			if (localTarget)
 				bone.modifyLocal(skeleton);
 			else
-				bone.modifyWorld(update);
+				bone.modifyWorld(skeleton);
 			var f = 0;
 			while (f < fn) {
 				var from = fromItems[f];

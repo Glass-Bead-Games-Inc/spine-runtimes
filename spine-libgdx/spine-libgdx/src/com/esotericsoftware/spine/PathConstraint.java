@@ -150,8 +150,9 @@ public class PathConstraint extends Constraint<PathConstraint, PathConstraintDat
 			BonePose bone = slot.bone.appliedPose;
 			offsetRotation *= bone.a * bone.d - bone.b * bone.c > 0 ? degRad : -degRad;
 		}
-		for (int i = 0, ip = 3, u = skeleton.update; i < boneCount; i++, ip += 3) {
+		for (int i = 0, ip = 3; i < boneCount; i++, ip += 3) {
 			BonePose bone = bones[i];
+			bone.modifyWorld(skeleton);
 			bone.worldX += (boneX - bone.worldX) * mixX;
 			bone.worldY += (boneY - bone.worldY) * mixY;
 			float x = positions[ip], y = positions[ip + 1], dx = x - boneX, dy = y - boneY;
@@ -194,7 +195,6 @@ public class PathConstraint extends Constraint<PathConstraint, PathConstraintDat
 				bone.c = sin * a + cos * c;
 				bone.d = sin * b + cos * d;
 			}
-			bone.modifyWorld(u);
 		}
 	}
 

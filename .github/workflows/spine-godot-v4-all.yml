@@ -5,7 +5,8 @@ on:
     branches:
       - '**'
     paths:
-      - ".github/workflows/spine-godot.yml"
+      - ".github/workflows/spine-godot-v4-all.yml"
+      - ".github/workflows/spine-godot-v4.yml"
       - 'spine-godot/**'
       - 'spine-cpp/**'
   workflow_dispatch:

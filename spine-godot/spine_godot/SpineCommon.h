@@ -74,9 +74,7 @@ using namespace godot;
 #if VERSION_MAJOR > 3
 #include "core/core_bind.h"
 #include "core/error/error_macros.h"
-// callable_mp is no longer transitively included as of Godot 4.7, which also
-// renamed its header from callable_method_pointer.h to callable_mp.h.
-#if VERSION_MINOR >= 7
+#if VERSION_MAJOR > 4 || (VERSION_MAJOR == 4 && VERSION_MINOR >= 7)
 #include "core/object/callable_mp.h"
 #else
 #include "core/object/callable_method_pointer.h"
@@ -124,26 +122,15 @@ using namespace godot;
 #define SPINE_STRING(x) spine::String((x).utf8().ptr())
 #define SPINE_STRING_TMP(x) spine::String((x).utf8().ptr(), true, false)
 
-// Godot 4.7 split the RenderingServer enums (ArrayType/ArrayFormat/PrimitiveType,
-// ARRAY_*, PRIMITIVE_*) into the RenderingServerEnums (RSE) struct and the types
-// (SurfaceData) into the RenderingServerTypes namespace. The GDExtension (godot-cpp)
-// and Godot <= 4.6 keep them on RenderingServer (RS).
-#if !defined(SPINE_GODOT_EXTENSION) && VERSION_MAJOR > 3 && VERSION_MINOR >= 7
-#define SPINE_RS_ENUM RSE
-#define SPINE_RS_TYPE RenderingServerTypes
-#else
-#define SPINE_RS_ENUM RS
-#define SPINE_RS_TYPE RS
-#endif
-
-#include "SpineSpriteOwner.h"
-
 // Can't do template classes with Godot's object model :(
 class SpineObjectWrapper : public REFCOUNTED {
 	GDCLASS(SpineObjectWrapper, REFCOUNTED)
 
 	Object *spine_owner;
 	void *spine_object;
+#if VERSION_MAJOR <= 3
+	ObjectID spine_owner_id;
+#endif
 
 protected:
 	static void _bind_methods() {
@@ -157,10 +144,26 @@ protected:
 #else
 		spine_owner->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"));
 #endif
+		spine_owner = nullptr;
 	}
 
-	SpineObjectWrapper() : spine_owner(nullptr), spine_object(nullptr) {
+	SpineObjectWrapper() : spine_owner(nullptr), spine_object(nullptr)
+#if VERSION_MAJOR <= 3
+		, spine_owner_id(0)
+#endif
+	{
 	}
+
+#if VERSION_MAJOR <= 3
+	~SpineObjectWrapper() {
+		if (!spine_object) return;
+		auto owner = ObjectDB::get_instance(spine_owner_id);
+		if (!owner) return;
+		if (owner->is_connected(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"))) {
+			owner->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"));
+		}
+	}
+#endif
 
 	template<typename OWNER, typename OBJECT>
 	void _set_spine_object_internal(const OWNER *_owner, OBJECT *_object) {
@@ -178,6 +181,9 @@ protected:
 		}
 
 		spine_owner = (Object *) _owner;
+#if VERSION_MAJOR <= 3
+		spine_owner_id = spine_owner->get_instance_id();
+#endif
 		spine_object = _object;
 #if VERSION_MAJOR > 3
 		spine_owner->connect(SNAME("_internal_spine_objects_invalidated"), callable_mp(this, &SpineObjectWrapper::spine_objects_invalidated));
@@ -194,25 +200,21 @@ protected:
 	}
 };
 
+class SpineSprite;
+
 template<typename OBJECT>
 class SpineSpriteOwnedObject : public SpineObjectWrapper {
-	// Store the interface pointer directly. Never C-cast between SpineSpriteOwner*
-	// and Object*: under multiple inheritance they are different addresses. The
-	// Object* for the wrapper base is obtained via owner_as_node() (a valid Node->Object upcast).
-	SpineSpriteOwner *owner_iface = nullptr;
-
 public:
-	void set_spine_object(SpineSpriteOwner *_owner, OBJECT *_object) {
-		owner_iface = _owner;
-		_set_spine_object_internal(_owner ? _owner->owner_as_node() : (Node *) nullptr, _object);
+	void set_spine_object(const SpineSprite *_owner, OBJECT *_object) {
+		_set_spine_object_internal(_owner, _object);
 	}
 
 	OBJECT *get_spine_object() {
 		return (OBJECT *) _get_spine_object_internal();
 	}
 
-	SpineSpriteOwner *get_spine_owner() {
-		return owner_iface;
+	SpineSprite *get_spine_owner() {
+		return (SpineSprite *) _get_spine_owner_internal();
 	}
 };
 

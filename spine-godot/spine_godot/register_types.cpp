@@ -37,9 +37,6 @@
 #include "SpineSkeletonFileResource.h"
 #include "SpineSkeletonDataResource.h"
 #include "SpineSprite.h"
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-#include "SpineSprite3D.h"
-#endif// 3D (Godot 4.x only)
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineAnimationTrack.h"
@@ -73,16 +70,12 @@
 #include "SpineConstant.h"
 #include "SpineSlotNode.h"
 #include "SpineBoneNode.h"
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-#include "SpineSlotNode3D.h"
-#include "SpineBoneNode3D.h"
-#endif// 3D (Godot 4.x only)
 #include "spine/Bone.h"
 
-static Ref<SpineAtlasResourceFormatLoader> atlas_loader;
-static Ref<SpineAtlasResourceFormatSaver> atlas_saver;
-static Ref<SpineSkeletonFileResourceFormatLoader> skeleton_file_loader;
-static Ref<SpineSkeletonFileResourceFormatSaver> skeleton_file_saver;
+static SpineAtlasResourceFormatLoader *atlas_loader;
+static SpineAtlasResourceFormatSaver *atlas_saver;
+static SpineSkeletonFileResourceFormatLoader *skeleton_file_loader;
+static SpineSkeletonFileResourceFormatSaver *skeleton_file_saver;
 
 #ifdef TOOLS_ENABLED
 #ifdef SPINE_GODOT_EXTENSION
@@ -153,9 +146,6 @@ void register_spine_godot_types() {
 	GDREGISTER_CLASS(SpineSkeletonDataResource);
 	GDREGISTER_CLASS(SpineAnimationMix);
 	GDREGISTER_CLASS(SpineSprite);
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-	GDREGISTER_CLASS(SpineSprite3D);
-#endif// 3D (Godot 4.x only)
 	GDREGISTER_CLASS(SpineMesh2D);
 	GDREGISTER_CLASS(SpineSkeleton);
 	GDREGISTER_CLASS(SpineAnimationState);
@@ -194,50 +184,82 @@ void register_spine_godot_types() {
 
 	GDREGISTER_CLASS(SpineSlotNode);
 	GDREGISTER_CLASS(SpineBoneNode);
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-	GDREGISTER_CLASS(SpineSlotNode3D);
-	GDREGISTER_CLASS(SpineBoneNode3D);
-#endif// 3D (Godot 4.x only)
 #ifndef SPINE_GODOT_EXTENSION
 	GDREGISTER_CLASS(SpineAnimationTrack);
 #endif
 
 #ifdef SPINE_GODOT_EXTENSION
-	INSTANTIATE(atlas_loader);
+#if VERSION_MAJOR > 4 || (VERSION_MAJOR == 4 && VERSION_MINOR >= 7)
+	Ref<SpineAtlasResourceFormatLoader> atlas_loader_ref = memnew(SpineAtlasResourceFormatLoader);
+	atlas_loader = atlas_loader_ref.ptr();
+	ResourceLoader::get_singleton()->add_resource_format_loader(atlas_loader_ref);
+
+	Ref<SpineAtlasResourceFormatSaver> atlas_saver_ref = memnew(SpineAtlasResourceFormatSaver);
+	atlas_saver = atlas_saver_ref.ptr();
+	ResourceSaver::get_singleton()->add_resource_format_saver(atlas_saver_ref);
+
+	Ref<SpineSkeletonFileResourceFormatLoader> skeleton_file_loader_ref = memnew(SpineSkeletonFileResourceFormatLoader);
+	skeleton_file_loader = skeleton_file_loader_ref.ptr();
+	ResourceLoader::get_singleton()->add_resource_format_loader(skeleton_file_loader_ref);
+
+	Ref<SpineSkeletonFileResourceFormatSaver> skeleton_file_saver_ref = memnew(SpineSkeletonFileResourceFormatSaver);
+	skeleton_file_saver = skeleton_file_saver_ref.ptr();
+	ResourceSaver::get_singleton()->add_resource_format_saver(skeleton_file_saver_ref);
+#else
+	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
 	ResourceLoader::get_singleton()->add_resource_format_loader(atlas_loader);
 
-	INSTANTIATE(atlas_saver);
+	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
 	ResourceSaver::get_singleton()->add_resource_format_saver(atlas_saver);
 
-	INSTANTIATE(skeleton_file_loader);
+	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
 	ResourceLoader::get_singleton()->add_resource_format_loader(skeleton_file_loader);
 
-	INSTANTIATE(skeleton_file_saver);
+	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
 	ResourceSaver::get_singleton()->add_resource_format_saver(skeleton_file_saver);
+#endif
 #else
 #if VERSION_MAJOR > 3
-	INSTANTIATE(atlas_loader);
-	ResourceLoader::add_resource_format_loader(atlas_loader);
+#if VERSION_MAJOR > 4 || (VERSION_MAJOR == 4 && VERSION_MINOR >= 7)
+	Ref<SpineAtlasResourceFormatLoader> atlas_loader_ref = memnew(SpineAtlasResourceFormatLoader);
+	atlas_loader = atlas_loader_ref.ptr();
+	ResourceLoader::add_resource_format_loader(atlas_loader_ref);
 
-	INSTANTIATE(atlas_saver);
-	ResourceSaver::add_resource_format_saver(atlas_saver);
+	Ref<SpineAtlasResourceFormatSaver> atlas_saver_ref = memnew(SpineAtlasResourceFormatSaver);
+	atlas_saver = atlas_saver_ref.ptr();
+	ResourceSaver::add_resource_format_saver(atlas_saver_ref);
 
-	INSTANTIATE(skeleton_file_loader);
-	ResourceLoader::add_resource_format_loader(skeleton_file_loader);
+	Ref<SpineSkeletonFileResourceFormatLoader> skeleton_file_loader_ref = memnew(SpineSkeletonFileResourceFormatLoader);
+	skeleton_file_loader = skeleton_file_loader_ref.ptr();
+	ResourceLoader::add_resource_format_loader(skeleton_file_loader_ref);
 
-	INSTANTIATE(skeleton_file_saver);
-	ResourceSaver::add_resource_format_saver(skeleton_file_saver);
+	Ref<SpineSkeletonFileResourceFormatSaver> skeleton_file_saver_ref = memnew(SpineSkeletonFileResourceFormatSaver);
+	skeleton_file_saver = skeleton_file_saver_ref.ptr();
+	ResourceSaver::add_resource_format_saver(skeleton_file_saver_ref);
 #else
-	INSTANTIATE(atlas_loader);
+	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
 	ResourceLoader::add_resource_format_loader(atlas_loader);
 
-	INSTANTIATE(atlas_saver);
+	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
 	ResourceSaver::add_resource_format_saver(atlas_saver);
 
-	INSTANTIATE(skeleton_file_loader);
+	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
 	ResourceLoader::add_resource_format_loader(skeleton_file_loader);
 
-	INSTANTIATE(skeleton_file_saver);
+	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
+	ResourceSaver::add_resource_format_saver(skeleton_file_saver);
+#endif
+#else
+	atlas_loader = memnew(SpineAtlasResourceFormatLoader);
+	ResourceLoader::add_resource_format_loader(atlas_loader);
+
+	atlas_saver = memnew(SpineAtlasResourceFormatSaver);
+	ResourceSaver::add_resource_format_saver(atlas_saver);
+
+	skeleton_file_loader = memnew(SpineSkeletonFileResourceFormatLoader);
+	ResourceLoader::add_resource_format_loader(skeleton_file_loader);
+
+	skeleton_file_saver = memnew(SpineSkeletonFileResourceFormatSaver);
 	ResourceSaver::add_resource_format_saver(skeleton_file_saver);
 #endif
 #endif
@@ -247,9 +269,6 @@ void register_spine_godot_types() {
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-		SpineSprite3D::clear_statics();
-#endif// 3D (Godot 4.x only)
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;
@@ -258,14 +277,15 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	ResourceSaver::get_singleton()->remove_resource_format_saver(atlas_saver);
 	ResourceLoader::get_singleton()->remove_resource_format_loader(skeleton_file_loader);
 	ResourceSaver::get_singleton()->remove_resource_format_saver(skeleton_file_saver);
+	atlas_loader = nullptr;
+	atlas_saver = nullptr;
+	skeleton_file_loader = nullptr;
+	skeleton_file_saver = nullptr;
 }
 #elif VERSION_MAJOR > 3
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-		SpineSprite3D::clear_statics();
-#endif// 3D (Godot 4.x only)
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;
@@ -273,6 +293,10 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	ResourceSaver::remove_resource_format_saver(atlas_saver);
 	ResourceLoader::remove_resource_format_loader(skeleton_file_loader);
 	ResourceSaver::remove_resource_format_saver(skeleton_file_saver);
+	atlas_loader = nullptr;
+	atlas_saver = nullptr;
+	skeleton_file_loader = nullptr;
+	skeleton_file_saver = nullptr;
 }
 #else
 void unregister_spine_godot_types() {
@@ -280,6 +304,10 @@ void unregister_spine_godot_types() {
 	ResourceSaver::remove_resource_format_saver(atlas_saver);
 	ResourceLoader::remove_resource_format_loader(skeleton_file_loader);
 	ResourceSaver::remove_resource_format_saver(skeleton_file_saver);
+	atlas_loader = nullptr;
+	atlas_saver = nullptr;
+	skeleton_file_loader = nullptr;
+	skeleton_file_saver = nullptr;
 }
 #endif
 

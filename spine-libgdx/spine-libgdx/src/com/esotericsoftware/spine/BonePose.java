@@ -367,23 +367,24 @@ public class BonePose implements Pose<BonePose>, Update {
 	void modifyLocal (Skeleton skeleton) {
 		if (local == skeleton.update) updateLocalTransform(skeleton);
 		world = 0;
-		resetWorld(skeleton.update);
+		resetWorld(skeleton, skeleton.update);
 	}
 
-	void modifyWorld (int update) {
+	void modifyWorld (Skeleton skeleton) {
+		int update = skeleton.update;
 		local = update;
 		world = update;
-		resetWorld(update);
+		resetWorld(skeleton, update);
 	}
 
-	private void resetWorld (int update) {
+	private void resetWorld (Skeleton skeleton, int update) {
 		Bone[] children = bone.children.items;
 		for (int i = 0, n = bone.children.size; i < n; i++) {
 			BonePose child = children[i].appliedPose;
 			if (child.world == update) {
+				if (child.local == update) child.updateLocalTransform(skeleton);
 				child.world = 0;
-				child.local = 0;
-				child.resetWorld(update);
+				child.resetWorld(skeleton, update);
 			}
 		}
 	}

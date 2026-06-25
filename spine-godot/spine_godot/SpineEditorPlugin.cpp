@@ -43,7 +43,7 @@
 #include <godot_cpp/classes/spin_box.hpp>
 #else
 #include "editor/editor_undo_redo_manager.h"
-#include "scene/main/scene_tree.h"// SceneTree member access; not transitively included in Godot 4.7
+#include "scene/main/scene_tree.h"
 #endif
 #ifdef SPINE_GODOT_EXTENSION
 Error SpineAtlasResourceImportPlugin::_import(const String &source_file, const String &save_path, const Dictionary &options,
@@ -695,11 +695,7 @@ bool SpineSpriteInspectorPlugin::_can_handle(Object *object) const {
 #else
 bool SpineSpriteInspectorPlugin::can_handle(Object *object) {
 #endif
-	if (Object::cast_to<SpineSprite>(object) != nullptr) return true;
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-	if (Object::cast_to<SpineSprite3D>(object) != nullptr) return true;
-#endif// 3D (Godot 4.x only)
-	return false;
+	return Object::cast_to<SpineSprite>(object) != nullptr;
 }
 
 #ifdef SPINE_GODOT_EXTENSION
@@ -707,17 +703,9 @@ void SpineSpriteInspectorPlugin::_parse_begin(Object *object) {
 #else
 void SpineSpriteInspectorPlugin::parse_begin(Object *object) {
 #endif
-	if (SpineSprite *s = Object::cast_to<SpineSprite>(object)) {
-		sprite_owner = s;
-#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-	} else if (SpineSprite3D *s3 = Object::cast_to<SpineSprite3D>(object)) {
-		sprite_owner = s3;
-#endif// 3D (Godot 4.x only)
-	} else {
-		sprite_owner = nullptr;
-	}
-	if (!sprite_owner) return;
-	if (!sprite_owner->get_skeleton_data_res().is_valid() || !sprite_owner->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+	sprite = Object::cast_to<SpineSprite>(object);
+	if (!sprite) return;
+	if (!sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
 }
 
 #endif

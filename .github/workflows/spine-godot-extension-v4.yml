@@ -11,6 +11,10 @@ on:
         required: true
         type: string
         default: "Godot version not specified!"
+      godot_cpp_api_version:
+        required: true
+        type: string
+        default: "Godot C++ API version not specified!"
       dev:
         required: true
         type: boolean
@@ -22,6 +26,7 @@ env:
   AWS_EC2_METADATA_DISABLED: true
   GODOT_TAG: ${{ inputs.godot_tag }}
   GODOT_VERSION: ${{ inputs.godot_version }}
+  GODOT_CPP_API_VERSION: ${{ inputs.godot_cpp_api_version }}
   DEV_BUILD: ${{ inputs.dev }}
 
 jobs:

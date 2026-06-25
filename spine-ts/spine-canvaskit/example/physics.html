@@ -68,8 +68,8 @@
     // the last touch/mouse location and the current touch/mouse location.
     const drag = (touchX, touchY) => {
         const clientRect = canvasElement.getBoundingClientRect();
-        let x = touchX - clientRect.left;
-        let y = touchY - clientRect.top;
+        const x = touchX - clientRect.left;
+        const y = touchY - clientRect.top;
         if (lastX == -1 && lastY == -1) {
             lastX = x;
             lastY = y;

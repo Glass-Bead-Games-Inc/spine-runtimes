@@ -9,9 +9,9 @@
   </head>
 
   <body>
-    <script>javascript:(function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();document.body.appendChild(stats.dom);stats.dom.children[1].style.display='block';if (stats.dom.children[2]) stats.dom.children[2].style.display='block';requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})()</script>
+    <script>javascript:(()=> {var script=document.createElement('script');script.onload=()=> {var stats=new Stats();document.body.appendChild(stats.dom);stats.dom.children[1].style.display='block';if (stats.dom.children[2]) stats.dom.children[2].style.display='block';requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})()</script>
     <script>
-      (async function () {
+      (async () => {
         const params = new URLSearchParams(window.location.search);
         const totalBunnies = parseInt(params.get('count')) || 100;
         const preference = params.get('renderer') || 'webgl';

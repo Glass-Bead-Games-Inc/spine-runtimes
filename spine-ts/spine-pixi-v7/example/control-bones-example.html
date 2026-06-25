@@ -10,7 +10,7 @@
 
   <body>
     <script>
-      (async function () {
+      (async () => {
         var app = new PIXI.Application({
           width: window.innerWidth,
           height: window.innerHeight,
@@ -94,7 +94,7 @@
 
         const point = { x: 0, y: 0 };
         stretchyman.beforeUpdateWorldTransforms = () => {
-          for (let { bone, control } of controlBones) {
+          for (const { bone, control } of controlBones) {
             point.x = control.x;
             point.y = control.y;
             stretchyman.pixiWorldCoordinatesToBone(point, bone);

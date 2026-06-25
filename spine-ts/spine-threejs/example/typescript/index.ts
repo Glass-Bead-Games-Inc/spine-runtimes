@@ -13,17 +13,17 @@ let canvas: HTMLCanvasElement;
 let controls: OrbitControls;
 let lastFrameTime = Date.now() / 1000;
 
-let baseUrl = "/assets/";
-let skeletonFile = "raptor-pro.json";
-let atlasFile = skeletonFile
+const baseUrl = "/assets/";
+const skeletonFile = "raptor-pro.json";
+const atlasFile = skeletonFile
 	.replace("-pro", "")
 	.replace("-ess", "")
 	.replace(".json", ".atlas");
-let animation = "walk";
+const animation = "walk";
 
 function init () {
 	// create the THREE.JS camera, scene and renderer (WebGL)
-	let width = window.innerWidth,
+	const width = window.innerWidth,
 		height = window.innerHeight;
 	camera = new THREE.PerspectiveCamera(75, width / height, 1, 3000);
 	camera.position.y = 100;
@@ -74,11 +74,11 @@ function load () {
 		atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 
 		// Create a SkeletonJson instance for parsing the .json file.
-		let skeletonJson = new spine.SkeletonJson(atlasLoader);
+		const skeletonJson = new spine.SkeletonJson(atlasLoader);
 
 		// Set the scale to apply during parsing, parse the file, and create a new skeleton.
 		skeletonJson.scale = 0.4;
-		let skeletonData = skeletonJson.readSkeletonData(
+		const skeletonData = skeletonJson.readSkeletonData(
 			assetManager.require(skeletonFile)
 		);
 
@@ -96,11 +96,11 @@ function load () {
 	} else requestAnimationFrame(load);
 }
 
-let lastTime = Date.now();
+const lastTime = Date.now();
 function render () {
 	// calculate delta time for animation purposes
-	let now = Date.now() / 1000;
-	let delta = now - lastFrameTime;
+	const now = Date.now() / 1000;
+	const delta = now - lastFrameTime;
 	lastFrameTime = now;
 
 	// resize canvas to use full page, adjust camera/renderer
@@ -119,8 +119,8 @@ function render () {
 }
 
 function resize () {
-	let w = window.innerWidth;
-	let h = window.innerHeight;
+	const w = window.innerWidth;
+	const h = window.innerHeight;
 	if (canvas.width != w || canvas.height != h) {
 		canvas.width = w;
 		canvas.height = h;

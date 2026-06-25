@@ -34,7 +34,7 @@
         const graphics = this.add.graphics();
         const width = levelWidth / 5;
         const height = levelHeight / 4;
-        let cells = [];
+        const cells = [];
         for (let i = 0; i < levelWidth / width; i++) {
           for (let j = 0; j < levelHeight / height; j++) {
             const x = i * width;
@@ -56,7 +56,7 @@
 
         const physicsCells = cells.splice(cells.length - 2, 2);
 
-        let animations = undefined;
+        let animations ;
         let prevWidth = 0;
         let prevHeight = 0;
         cells.forEach(({ x, y }, i) => {
@@ -72,7 +72,7 @@
             if (!animations) animations = gameobject.skeleton.data.animations;
             gameobject.animationState.setAnimation(0, animation, true);
 
-            let ratio = gameobject.width / gameobject.height;
+            const ratio = gameobject.width / gameobject.height;
             if (ratio > 1) {
               gameobject.displayHeight = height / ratio;
               gameobject.displayWidth = width;

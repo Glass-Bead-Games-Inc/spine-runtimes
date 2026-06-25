@@ -112,7 +112,6 @@
             border: none;
             background: #007bff;
             color: white;
-            pointer: pointer;
             border-radius: 3px;
             margin: 1px 0;
         }
@@ -151,7 +150,6 @@
             border: none;
             background: #dc3545;
             color: white;
-            pointer: pointer;
         }
 
         .btn.next {
@@ -175,7 +173,6 @@
             align-items: center;
             border: 3px solid transparent;
             transition: border-color 0.3s ease-in-out;
-            pointer: pointer;
             background: white;
             box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
         }
@@ -433,7 +430,7 @@
 
                     if (currentEntry.animation.name === `shake-${itemName}`) {
                         widget1.state.setEmptyAnimation(trackNumber);
-                    } else if (currentEntry.next && currentEntry.next.animation && currentEntry.next.animation.name === `shake-${itemName}`) {
+                    } else if (currentEntry.next?.animation && currentEntry.next.animation.name === `shake-${itemName}`) {
                         widget1.state.clearNext(currentEntry);
                         widget1.state.addEmptyAnimation(trackNumber);
                     }
@@ -445,11 +442,10 @@
                 const addItemAction = () => {
                     widget1.state.setAnimation(trackNumber, `add-${itemName}`, false);
                     widget1.state.addAnimation(trackNumber, `shake-${itemName}`, true);
-                    listItemDiv.textContent = parseInt(listItemDiv.textContent) + 1;
+                    listItemDiv.textContent = parseInt(listItemDiv.textContent, 10) + 1;
                 }
 
                 const itemSlot = widget1.skeleton.findSlot(`bubble-base-${itemName.charAt(0)}`);
-                let onItem = false;
                 widget1.addPointerSlotEventCallback(itemSlot, (slot, event) => {
 
                     if (event === "enter") {
@@ -458,11 +454,10 @@
                     }
 
                     if (event === "leave") {
-                        onItem = false;
                         const currentEntry = widget1.state.getTrack(trackNumber);
                         if (currentEntry.animation.name === `shake-${itemName}`) {
                             widget1.state.setEmptyAnimation(trackNumber);
-                        } else if (currentEntry.next && currentEntry.next.animation && currentEntry.next.animation.name === `shake-${itemName}`) {
+                        } else if (currentEntry.next?.animation && currentEntry.next.animation.name === `shake-${itemName}`) {
                             widget1.state.clearNext(currentEntry);
                             widget1.state.addEmptyAnimation(trackNumber);
                         }
@@ -484,7 +479,7 @@
 
                 const itemButtonMinus = document.getElementById(buttonNameMinus);
                 const removeItemAction = () => {
-                    const current = parseInt(listItemDiv.textContent);
+                    const current = parseInt(listItemDiv.textContent, 10);
                     if (current > 0) listItemDiv.textContent = current - 1;
                 }
                 itemButtonMinus.onclick = removeItemAction;
@@ -528,7 +523,7 @@
                         itemDiv.style.borderColor = "transparent";
                         delete itemDiv.dataset.cooking;
                         const interval = setInterval(() => {
-                            let alpha = foodPiece.color.a;
+                            const alpha = foodPiece.color.a;
                             if (alpha <= 0) {
                                 clearInterval(interval);
                                 return;
@@ -539,7 +534,7 @@
                         itemDiv.style.borderColor = "#4CAF50";
                         itemDiv.dataset.cooking = true;
                         const interval = setInterval(() => {
-                            let alpha = foodPiece.color.a;
+                            const alpha = foodPiece.color.a;
                             if (alpha >= 1) {
                                 clearInterval(interval);
                                 return;
@@ -648,7 +643,7 @@
                 }
 
                 if (event === "leave") {
-                    let track = widget4.state.setEmptyAnimation(3);
+                    const track = widget4.state.setEmptyAnimation(3);
                     track.mixDuration = 1;
                 }
 

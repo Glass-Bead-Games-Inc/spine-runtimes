@@ -1,8 +1,8 @@
 # spine-haxe 4.3 changelog
 
-Recovered from the root `4.3` changelog up to the `4.3.0` release.
-
 ## Unreleased
+
+- Port of 50e82f31: Fixed constraints overwriting bone transforms from other constraints.
 
 ## 4.3.1 - 2026-06-04
 

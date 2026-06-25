@@ -6,7 +6,7 @@
     "enabled": true,
     "includes": ["**", "!spine-construct3/ts-defs/**"],
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "complexity": {
         "noUselessConstructor": "off"
       },
@@ -20,6 +20,11 @@
         "noAssignInExpressions": "off",
         "noPrototypeBuiltins": "off"
       }
+    }
+  },
+  "html": {
+    "linter": {
+      "enabled": false
     }
   }
 }

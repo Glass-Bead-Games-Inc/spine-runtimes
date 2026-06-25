@@ -5998,18 +5998,18 @@ class SpineDartBindings {
 
   void spine_bone_pose_modify_world(
     spine_bone_pose self,
-    int update,
+    spine_skeleton skeleton,
   ) {
     return _spine_bone_pose_modify_world(
       self,
-      update,
+      skeleton,
     );
   }
 
   late final _spine_bone_pose_modify_worldPtr =
-      _lookup<ffi.NativeFunction<ffi.Void Function(spine_bone_pose, ffi.Int)>>('spine_bone_pose_modify_world');
+      _lookup<ffi.NativeFunction<ffi.Void Function(spine_bone_pose, spine_skeleton)>>('spine_bone_pose_modify_world');
   late final _spine_bone_pose_modify_world =
-      _spine_bone_pose_modify_worldPtr.asFunction<void Function(spine_bone_pose, int)>();
+      _spine_bone_pose_modify_worldPtr.asFunction<void Function(spine_bone_pose, spine_skeleton)>();
 
   /// The world transform [a b][c d] x-axis x component.
   double spine_bone_pose_get_a(

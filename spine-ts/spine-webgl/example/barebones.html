@@ -29,7 +29,7 @@
 			}
 
 			initialize(canvas) {
-				let assetManager = canvas.assetManager;
+				const assetManager = canvas.assetManager;
 
 				// Create the texture atlas.
 				var atlas = assetManager.require("/assets/spineboy-pma.atlas");
@@ -61,7 +61,7 @@
 			}
 
 			render(canvas) {
-				let renderer = canvas.renderer;
+				const renderer = canvas.renderer;
 				// Resize the viewport to the full canvas.
 				renderer.resize(spine.ResizeMode.Expand);
 

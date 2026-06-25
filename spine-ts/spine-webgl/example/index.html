@@ -41,7 +41,7 @@
 		let ctx;
 		let shader;
 		let batcher;
-		let mvp = new spine.Matrix4();
+		const mvp = new spine.Matrix4();
 		let skeletonRenderer;
 		let assetManager;
 
@@ -59,7 +59,7 @@
 			canvas = document.getElementById("canvas");
 			canvas.width = window.innerWidth;
 			canvas.height = window.innerHeight;
-			let config = { alpha: false };
+			const config = { alpha: false };
 			ctx = new spine.ManagedWebGLRenderingContext(canvas, config);
 			if (!ctx.gl) {
 				alert('WebGL is unavailable.');
@@ -160,24 +160,24 @@
 			if (skin === undefined) skin = "default";
 
 			// Load the texture atlas using name.atlas from the AssetManager.
-			let atlas = assetManager.require(name.replace(/(?:-ess|-pro)\.(skel|json)/, "") + "-pma.atlas");
+			const atlas = assetManager.require(name.replace(/(?:-ess|-pro)\.(skel|json)/, "") + "-pma.atlas");
 
 			// Create an AtlasAttachmentLoader that resolves region, mesh, boundingbox and path attachments
-			let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+			const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 
 			// Create a skeleton loader instance for parsing the skeleton data file.
-			let skeletonLoader = name.endsWith(".skel") ? new spine.SkeletonBinary(atlasLoader) : new spine.SkeletonJson(atlasLoader);
+			const skeletonLoader = name.endsWith(".skel") ? new spine.SkeletonBinary(atlasLoader) : new spine.SkeletonJson(atlasLoader);
 
 			// Set the scale to apply during parsing, parse the file, and create a new skeleton.
 			skeletonLoader.scale = 1;
-			let skeletonData = skeletonLoader.readSkeletonData(assetManager.require(name));
-			let skeleton = new spine.Skeleton(skeletonData);
+			const skeletonData = skeletonLoader.readSkeletonData(assetManager.require(name));
+			const skeleton = new spine.Skeleton(skeletonData);
 			skeleton.setSkinByName(skin);
-			let bounds = calculateSetupPoseBounds(skeleton);
+			const bounds = calculateSetupPoseBounds(skeleton);
 
 			// Create an AnimationState, and set the initial animation in looping mode.
-			let animationStateData = new spine.AnimationStateData(skeleton.data);
-			let animationState = new spine.AnimationState(animationStateData);
+			const animationStateData = new spine.AnimationStateData(skeleton.data);
+			const animationState = new spine.AnimationState(animationStateData);
 			if (name == "spineboy-pro.skel" || name == "spineboy-pro.json") {
 				animationStateData.setMix("walk", "run", 1.5)
 				animationStateData.setMix("run", "jump", 0.2)
@@ -198,22 +198,22 @@
 				if ($('#debug').is(':checked')) console.log(message);
 			}
 			animationState.addListener({
-				start: function (track) {
+				start: (track) => {
 					log("Animation on track " + track.trackIndex + " started");
 				},
-				interrupt: function (track) {
+				interrupt: (track) => {
 					log("Animation on track " + track.trackIndex + " interrupted");
 				},
-				end: function (track) {
+				end: (track) => {
 					log("Animation on track " + track.trackIndex + " ended");
 				},
-				disposed: function (track) {
+				disposed: (track) => {
 					log("Animation on track " + track.trackIndex + " disposed");
 				},
-				complete: function (track) {
+				complete: (track) => {
 					log("Animation on track " + track.trackIndex + " completed");
 				},
-				event: function (track, event) {
+				event: (track, event) => {
 					log("Event on track " + track.trackIndex + ": " + JSON.stringify(event));
 				}
 			})
@@ -225,74 +225,74 @@
 		function calculateSetupPoseBounds(skeleton) {
 			skeleton.setupPose();
 			skeleton.updateWorldTransform(spine.Physics.update);
-			let offset = new spine.Vector2();
-			let size = new spine.Vector2();
+			const offset = new spine.Vector2();
+			const size = new spine.Vector2();
 			skeleton.getBounds(offset, size, []);
 			return { offset: offset, size: size };
 		}
 
 		function setupUI() {
-			let formatList = $("#formatList");
+			const formatList = $("#formatList");
 			formatList.append($("<option>Binary</option>"));
 			formatList.append($("<option selected>JSON</option>"));
-			let skeletonList = $("#skeletonList");
-			for (let skeletonName in skeletons) {
-				let option = $("<option></option>");
+			const skeletonList = $("#skeletonList");
+			for (const skeletonName in skeletons) {
+				const option = $("<option></option>");
 				option.attr("value", skeletonName).text(skeletonName);
 				if (skeletonName === activeSkeleton) option.attr("selected", "selected");
 				skeletonList.append(option);
 			}
-			let setupAnimationUI = function () {
-				let animationList = $("#animationList");
+			const setupAnimationUI = () => {
+				const animationList = $("#animationList");
 				animationList.empty();
-				let skeleton = skeletons[activeSkeleton][format].skeleton;
-				let state = skeletons[activeSkeleton][format].state;
-				let activeAnimation = state.tracks[0].animation.name;
+				const skeleton = skeletons[activeSkeleton][format].skeleton;
+				const state = skeletons[activeSkeleton][format].state;
+				const activeAnimation = state.tracks[0].animation.name;
 				for (let i = 0; i < skeleton.data.animations.length; i++) {
-					let name = skeleton.data.animations[i].name;
-					let option = $("<option></option>");
+					const name = skeleton.data.animations[i].name;
+					const option = $("<option></option>");
 					option.attr("value", name).text(name);
 					if (name === activeAnimation) option.attr("selected", "selected");
 					animationList.append(option);
 				}
 
-				animationList.change(function () {
-					let state = skeletons[activeSkeleton][format].state;
-					let skeleton = skeletons[activeSkeleton][format].skeleton;
-					let animationName = $("#animationList option:selected").text();
+				animationList.change(() => {
+					const state = skeletons[activeSkeleton][format].state;
+					const skeleton = skeletons[activeSkeleton][format].skeleton;
+					const animationName = $("#animationList option:selected").text();
 					skeleton.setupPose();
 					state.setAnimation(0, animationName, true);
 				})
 			}
 
-			let setupSkinUI = function () {
-				let skinList = $("#skinList");
+			const setupSkinUI = () => {
+				const skinList = $("#skinList");
 				skinList.empty();
-				let skeleton = skeletons[activeSkeleton][format].skeleton;
-				let activeSkin = skeleton.skin == null ? "default" : skeleton.skin.name;
+				const skeleton = skeletons[activeSkeleton][format].skeleton;
+				const activeSkin = skeleton.skin == null ? "default" : skeleton.skin.name;
 				for (let i = 0; i < skeleton.data.skins.length; i++) {
-					let name = skeleton.data.skins[i].name;
-					let option = $("<option></option>");
+					const name = skeleton.data.skins[i].name;
+					const option = $("<option></option>");
 					option.attr("value", name).text(name);
 					if (name === activeSkin) option.attr("selected", "selected");
 					skinList.append(option);
 				}
 
-				skinList.change(function () {
-					let skeleton = skeletons[activeSkeleton][format].skeleton;
-					let skinName = $("#skinList option:selected").text();
+				skinList.change(() => {
+					const skeleton = skeletons[activeSkeleton][format].skeleton;
+					const skinName = $("#skinList option:selected").text();
 					skeleton.setSkinByName(skinName);
 					skeleton.setupPose();
 				})
 			}
 
-			skeletonList.change(function () {
+			skeletonList.change(() => {
 				activeSkeleton = $("#skeletonList option:selected").text();
 				setupAnimationUI();
 				setupSkinUI();
 			})
 
-			formatList.change(function () {
+			formatList.change(() => {
 				format = $("#formatList option:selected").text();
 				setupAnimationUI();
 				setupSkinUI();
@@ -303,9 +303,9 @@
 		}
 
 		function render() {
-			let gl = ctx.gl;
-			let now = Date.now() / 1000;
-			let delta = now - lastFrameTime;
+			const gl = ctx.gl;
+			const now = Date.now() / 1000;
+			const delta = now - lastFrameTime;
 			lastFrameTime = now;
 
 			// Update the MVP matrix to adjust for canvas size changes
@@ -315,9 +315,9 @@
 			gl.clear(gl.COLOR_BUFFER_BIT);
 
 			// Apply the animation state based on the delta time.
-			let skeleton = skeletons[activeSkeleton][format].skeleton;
-			let state = skeletons[activeSkeleton][format].state;
-			let bounds = skeletons[activeSkeleton][format].bounds;
+			const skeleton = skeletons[activeSkeleton][format].skeleton;
+			const state = skeletons[activeSkeleton][format].state;
+			const bounds = skeletons[activeSkeleton][format].bounds;
 			state.update(delta);
 			state.apply(skeleton);
 			skeleton.updateWorldTransform(spine.Physics.update);
@@ -336,7 +336,7 @@
 			shader.unbind();
 
 			// Draw debug information.
-			let debug = $('#debug').is(':checked');
+			const debug = $('#debug').is(':checked');
 			if (debug) {
 				debugShader.bind();
 				debugShader.setUniform4x4f(spine.Shader.MVP_MATRIX, mvp.values);
@@ -350,23 +350,23 @@
 		}
 
 		function resize() {
-			let w = canvas.clientWidth;
-			let h = canvas.clientHeight;
+			const w = canvas.clientWidth;
+			const h = canvas.clientHeight;
 			if (canvas.width != w || canvas.height != h) {
 				canvas.width = w;
 				canvas.height = h;
 			}
 
 			// Calculations to center the skeleton in the canvas.
-			let bounds = skeletons[activeSkeleton][format].bounds;
-			let centerX = bounds.offset.x + bounds.size.x / 2;
-			let centerY = bounds.offset.y + bounds.size.y / 2;
-			let scaleX = bounds.size.x / canvas.width;
-			let scaleY = bounds.size.y / canvas.height;
+			const bounds = skeletons[activeSkeleton][format].bounds;
+			const centerX = bounds.offset.x + bounds.size.x / 2;
+			const centerY = bounds.offset.y + bounds.size.y / 2;
+			const scaleX = bounds.size.x / canvas.width;
+			const scaleY = bounds.size.y / canvas.height;
 			let scale = Math.max(scaleX, scaleY) * 2;
 			if (scale < 1) scale = 1;
-			let width = canvas.width * scale;
-			let height = canvas.height * scale;
+			const width = canvas.width * scale;
+			const height = canvas.height * scale;
 
 			mvp.ortho2d(centerX - width / 2, centerY - height / 2, width, height);
 			ctx.gl.viewport(0, 0, canvas.width, canvas.height);

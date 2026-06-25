@@ -1310,6 +1310,30 @@ export class Spine extends ViewContainer {
 		this._lastClippingAttachmentIds.length = 0;
 	}
 
+	/**
+	 * Unloads this Spine object's cached {@link SkeletonData}.
+	 *
+	 * Existing Spine objects that use this SkeletonData continue to work. Future Spine objects created with the same
+	 * skeleton, atlas, and scale will parse a new SkeletonData.
+	 * @returns `true` if the cached SkeletonData was removed, otherwise `false`.
+	 */
+	public unloadFromCache (): boolean {
+		const skeletonData = this.skeleton?.data;
+		if (!skeletonData) return false;
+
+		const cacheKey = Spine.skeletonDataCacheKeys.get(skeletonData);
+
+		if (!cacheKey || !Cache.has(cacheKey)) return false;
+
+		// If the cache was repopulated with different SkeletonData for this key, don't remove it.
+		if (Cache.get<SkeletonData>(cacheKey) !== skeletonData) return false;
+
+		Cache.remove(cacheKey);
+		Spine.skeletonDataCacheKeys.delete(skeletonData);
+
+		return true;
+	}
+
 	/** Converts a point from the skeleton coordinate system to the Pixi world coordinate system. */
 	public skeletonToPixiWorldCoordinates (point: { x: number; y: number }) {
 		this.worldTransform.apply(point, point);
@@ -1345,11 +1369,13 @@ export class Spine extends ViewContainer {
 	 * @returns {SpineOptions} The configuration ready to be passed to the Spine constructor
 	 */
 	static createOptions ({ skeleton, atlas, scale = 1, darkTint, autoUpdate = true, boundsProvider, allowMissingRegions = false, ticker }: SpineFromOptions): SpineOptions {
-		const cacheKey = `${skeleton}-${atlas}-${scale}`;
+		const cacheKey = Spine.getSkeletonCacheKey({ skeleton, atlas, scale });
 
 		if (Cache.has(cacheKey)) {
+			const skeletonData = Cache.get<SkeletonData>(cacheKey);
+			Spine.skeletonDataCacheKeys.set(skeletonData, cacheKey);
 			return {
-				skeletonData: Cache.get<SkeletonData>(cacheKey),
+				skeletonData,
 				darkTint,
 				autoUpdate,
 				boundsProvider,
@@ -1371,6 +1397,8 @@ export class Spine extends ViewContainer {
 
 		Cache.set(cacheKey, skeletonData);
 
+		Spine.skeletonDataCacheKeys.set(skeletonData, cacheKey);
+
 		return {
 			skeletonData,
 			darkTint,
@@ -1378,6 +1406,12 @@ export class Spine extends ViewContainer {
 			boundsProvider,
 			ticker,
 		};
+	}
+
+	private static readonly skeletonDataCacheKeys = new WeakMap<SkeletonData, string>();
+
+	private static getSkeletonCacheKey ({ skeleton, atlas, scale = 1 }: Pick<SpineFromOptions, "skeleton" | "atlas" | "scale">): string {
+		return `${skeleton}-${atlas}-${scale}`;
 	}
 
 	/**

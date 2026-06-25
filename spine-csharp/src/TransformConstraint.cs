@@ -71,14 +71,14 @@ namespace Spine {
 			BonePose source = this.source.appliedPose;
 			if (localSource) source.ValidateLocalTransform(skeleton);
 			FromProperty[] fromItems = data.properties.Items;
-			int fn = data.properties.Count, update = skeleton.update;
+			int fn = data.properties.Count;
 			BonePose[] bones = this.bones.Items;
 			for (int i = 0, n = this.bones.Count; i < n; i++) {
 				BonePose bone = bones[i];
 				if (localTarget)
 					bone.ModifyLocal(skeleton);
 				else
-					bone.ModifyWorld(update);
+					bone.ModifyWorld(skeleton);
 				for (int f = 0; f < fn; f++) {
 					FromProperty from = fromItems[f];
 					float value = from.Value(skeleton, source, localSource, offsets) - from.offset;

@@ -35,6 +35,7 @@
 #else
 #if VERSION_MAJOR > 3
 #include "core/config/engine.h"
+#include "scene/main/scene_tree.h"
 #else
 #include "core/engine.h"
 #endif

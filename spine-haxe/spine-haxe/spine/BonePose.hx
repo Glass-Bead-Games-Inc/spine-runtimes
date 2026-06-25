@@ -338,23 +338,25 @@ class BonePose implements Pose<BonePose> implements Update {
 		if (local == skeleton._update)
 			updateLocalTransform(skeleton);
 		world = 0;
-		resetWorld(skeleton._update);
+		resetWorld(skeleton, skeleton._update);
 	}
 
-	public function modifyWorld(update:Int) {
+	public function modifyWorld(skeleton:Skeleton) {
+		var update = skeleton._update;
 		local = update;
 		world = update;
-		resetWorld(update);
+		resetWorld(skeleton, update);
 	}
 
-	private function resetWorld(update:Int) {
+	private function resetWorld(skeleton:Skeleton, update:Int) {
 		var children = bone.children;
 		for (i in 0...bone.children.length) {
 			var child = children[i].appliedPose;
 			if (child.world == update) {
+				if (child.local == update)
+					child.updateLocalTransform(skeleton);
 				child.world = 0;
-				child.local = 0;
-				child.resetWorld(update);
+				child.resetWorld(skeleton, update);
 			}
 		}
 	}

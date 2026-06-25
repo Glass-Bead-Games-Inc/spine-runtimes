@@ -12,11 +12,10 @@
 <body class="flex flex-col" style="gap: 1em;">
 	<div id="container" style="width:640px; height:380px"></div>
 	<button id="dispose" style="align-self: flex-start;">Dispose</button>
-</body>
 <script>
 	var player = createPlayer();
 
-	document.getElementById("dispose").addEventListener("click", event => {
+	document.getElementById("dispose").addEventListener("click", _ => {
 		console.log("Disposing player.");
 		player.dispose();
 		player = createPlayer();

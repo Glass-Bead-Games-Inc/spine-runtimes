@@ -379,23 +379,24 @@ export class BonePose implements Pose<BonePose>, Update {
 	modifyLocal (skeleton: Skeleton): void {
 		if (this.local === skeleton._update) this.updateLocalTransform(skeleton);
 		this.world = 0;
-		this.resetWorld(skeleton._update);
+		this.resetWorld(skeleton, skeleton._update);
 	}
 
-	modifyWorld (update: number): void {
+	modifyWorld (skeleton: Skeleton): void {
+		const update = skeleton._update;
 		this.local = update;
 		this.world = update;
-		this.resetWorld(update);
+		this.resetWorld(skeleton, update);
 	}
 
-	private resetWorld (update: number): void {
+	private resetWorld (skeleton: Skeleton, update: number): void {
 		const children = this.bone.children;
 		for (let i = 0, n = children.length; i < n; i++) {
 			const child = children[i].appliedPose;
 			if (child.world === update) {
+				if (child.local === update) child.updateLocalTransform(skeleton);
 				child.world = 0;
-				child.local = 0;
-				child.resetWorld(update);
+				child.resetWorld(skeleton, update);
 			}
 		}
 	}

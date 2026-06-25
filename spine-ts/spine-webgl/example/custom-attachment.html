@@ -28,31 +28,31 @@
 			}
 
 			initialize(canvas) {
-				let assetManager = canvas.assetManager;
+				const assetManager = canvas.assetManager;
 
 				// Create the texture atlas.
-				let atlas = assetManager.require("/assets/spineboy-pma.atlas");
+				const atlas = assetManager.require("/assets/spineboy-pma.atlas");
 
 				// Create a AtlasAttachmentLoader that resolves region, mesh, boundingbox and path attachments
-				let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+				const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
 
 				// Create a SkeletonBinary instance for parsing the .skel file.
-				let skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+				const skeletonBinary = new spine.SkeletonBinary(atlasLoader);
 
 				// Set the scale to apply during parsing, parse the file, and create a new skeleton.
 				skeletonBinary.scale = 1;
-				let skeletonData = skeletonBinary.readSkeletonData(assetManager.require("/assets/spineboy-pro.skel"));
+				const skeletonData = skeletonBinary.readSkeletonData(assetManager.require("/assets/spineboy-pro.skel"));
 				this.skeleton = new spine.Skeleton(skeletonData);
 
 				// Create an AnimationState, and set the "run" animation in looping mode.
-				let animationStateData = new spine.AnimationStateData(skeletonData);
+				const animationStateData = new spine.AnimationStateData(skeletonData);
 				this.animationState = new spine.AnimationState(animationStateData);
 				this.animationState.setAnimation(0, "run", true);
 
 				// Get the custom head image from the asset manager and create an
 				// attachment from it.
-				let texture = assetManager.require("head.png");
-				let textureRegion = {
+				const texture = assetManager.require("head.png");
+				const textureRegion = {
 					texture: texture,
 					u: 0, v: 0, u2: 1, v2: 1,
 					width: texture.getImage().width, height: texture.getImage().height,
@@ -60,8 +60,8 @@
 					offsetX: 0, offsetY: 0,
 					originalWidth: texture.getImage().width, originalHeight: texture.getImage().height
 				};
-				let headSlotPose = this.skeleton.findSlot("head").pose;
-				let newHeadAttachment = headSlotPose.getAttachment().copy();
+				const headSlotPose = this.skeleton.findSlot("head").pose;
+				const newHeadAttachment = headSlotPose.getAttachment().copy();
 				newHeadAttachment.region = textureRegion;
 				newHeadAttachment.updateRegion();
 				headSlotPose.setAttachment(newHeadAttachment);
@@ -77,7 +77,7 @@
 			}
 
 			render(canvas) {
-				let renderer = canvas.renderer;
+				const renderer = canvas.renderer;
 				// Resize the viewport to the full canvas.
 				renderer.resize(spine.ResizeMode.Expand);
 
