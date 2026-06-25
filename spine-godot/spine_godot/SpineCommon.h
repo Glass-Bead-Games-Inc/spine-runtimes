@@ -142,7 +142,12 @@ class SpineObjectWrapper : public REFCOUNTED {
 
 	Object *spine_owner;
 	void *spine_object;
-#if VERSION_MAJOR <= 3
+	// Owner instance id, kept so the destructor can disconnect safely without
+	// dereferencing a possibly-freed spine_owner pointer. (engine: ObjectID;
+	// GDExtension: raw uint64_t returned by Object::get_instance_id())
+#ifdef SPINE_GODOT_EXTENSION
+	uint64_t spine_owner_id;
+#else
 	ObjectID spine_owner_id;
 #endif
 
@@ -162,24 +167,29 @@ protected:
 	}
 
 	SpineObjectWrapper()
-		: spine_owner(nullptr), spine_object(nullptr)
-#if VERSION_MAJOR <= 3
-		  ,
-		  spine_owner_id(0)
-#endif
-	{
+		: spine_owner(nullptr), spine_object(nullptr), spine_owner_id() {
 	}
 
-#if VERSION_MAJOR <= 3
+	// Disconnect on destruction so a freed wrapper never leaves a dangling
+	// connection on its owner. Godot 4 (notably the GDExtension) does not reliably
+	// auto-remove a callable_mp connection when the receiver RefCounted is freed,
+	// so the owner's next _internal_spine_objects_invalidated emit would call into
+	// freed memory -> use-after-free crash.
 	~SpineObjectWrapper() {
-		if (!spine_object) return;
-		auto owner = ObjectDB::get_instance(spine_owner_id);
-		if (!owner) return;
+		if (!spine_owner) return;// never set, or already invalidated (already disconnected)
+		Object *owner = ObjectDB::get_instance(spine_owner_id);
+		if (!owner) return;// owner freed first -> it already removed the connection
+#if VERSION_MAJOR > 3
+		Callable c = callable_mp(this, &SpineObjectWrapper::spine_objects_invalidated);
+		if (owner->is_connected(SNAME("_internal_spine_objects_invalidated"), c)) {
+			owner->disconnect(SNAME("_internal_spine_objects_invalidated"), c);
+		}
+#else
 		if (owner->is_connected(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"))) {
 			owner->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"));
 		}
-	}
 #endif
+	}
 
 	template<typename OWNER, typename OBJECT>
 	void _set_spine_object_internal(const OWNER *_owner, OBJECT *_object) {
@@ -197,9 +207,7 @@ protected:
 		}
 
 		spine_owner = (Object *) _owner;
-#if VERSION_MAJOR <= 3
 		spine_owner_id = spine_owner->get_instance_id();
-#endif
 		spine_object = _object;
 #if VERSION_MAJOR > 3
 		spine_owner->connect(SNAME("_internal_spine_objects_invalidated"), callable_mp(this, &SpineObjectWrapper::spine_objects_invalidated));
