@@ -37,6 +37,9 @@
 #include "SpineSkeletonFileResource.h"
 #include "SpineSkeletonDataResource.h"
 #include "SpineSprite.h"
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+#include "SpineSprite3D.h"
+#endif// 3D (Godot 4.x only)
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
 #include "SpineAnimationTrack.h"
@@ -70,6 +73,10 @@
 #include "SpineConstant.h"
 #include "SpineSlotNode.h"
 #include "SpineBoneNode.h"
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+#include "SpineSlotNode3D.h"
+#include "SpineBoneNode3D.h"
+#endif// 3D (Godot 4.x only)
 #include "spine/Bone.h"
 
 static SpineAtlasResourceFormatLoader *atlas_loader;
@@ -146,6 +153,9 @@ void register_spine_godot_types() {
 	GDREGISTER_CLASS(SpineSkeletonDataResource);
 	GDREGISTER_CLASS(SpineAnimationMix);
 	GDREGISTER_CLASS(SpineSprite);
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+	GDREGISTER_CLASS(SpineSprite3D);
+#endif// 3D (Godot 4.x only)
 	GDREGISTER_CLASS(SpineMesh2D);
 	GDREGISTER_CLASS(SpineSkeleton);
 	GDREGISTER_CLASS(SpineAnimationState);
@@ -184,6 +194,10 @@ void register_spine_godot_types() {
 
 	GDREGISTER_CLASS(SpineSlotNode);
 	GDREGISTER_CLASS(SpineBoneNode);
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+	GDREGISTER_CLASS(SpineSlotNode3D);
+	GDREGISTER_CLASS(SpineBoneNode3D);
+#endif// 3D (Godot 4.x only)
 #ifndef SPINE_GODOT_EXTENSION
 	GDREGISTER_CLASS(SpineAnimationTrack);
 #endif
@@ -269,6 +283,9 @@ void register_spine_godot_types() {
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+		SpineSprite3D::clear_statics();
+#endif// 3D (Godot 4.x only)
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;
@@ -286,6 +303,9 @@ void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 void uninitialize_spine_godot_module(ModuleInitializationLevel level) {
 	if (level == MODULE_INITIALIZATION_LEVEL_SCENE) {
 		SpineSprite::clear_statics();
+#if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+		SpineSprite3D::clear_statics();
+#endif// 3D (Godot 4.x only)
 		return;
 	}
 	if (level != MODULE_INITIALIZATION_LEVEL_CORE) return;

@@ -31,6 +31,7 @@
 
 #include "SpineSkeleton.h"
 #include "SpineAnimationState.h"
+#include "SpineSpriteOwner.h"
 #ifdef SPINE_GODOT_EXTENSION
 #include "SpineCommon.h"
 #include <godot_cpp/classes/node2d.hpp>
@@ -135,7 +136,7 @@ public:
 #endif
 };
 
-class SpineSprite : public Node2D, public spine::AnimationStateListenerObject {
+class SpineSprite : public Node2D, public spine::AnimationStateListenerObject, public SpineSpriteOwner {
 	GDCLASS(SpineSprite, Node2D)
 
 	friend class SpineBone;
@@ -188,7 +189,7 @@ protected:
 	void remove_meshes();
 	void sort_slot_nodes();
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
-	void set_modified_bones() {
+	void set_modified_bones() override {
 		modified_bones = true;
 	}
 	void draw();
@@ -202,11 +203,13 @@ public:
 
 	void set_skeleton_data_res(const Ref<SpineSkeletonDataResource> &_spine_skeleton_data_resource);
 
-	Ref<SpineSkeletonDataResource> get_skeleton_data_res();
+	Ref<SpineSkeletonDataResource> get_skeleton_data_res() override;
 
-	Ref<SpineSkeleton> get_skeleton();
+	Ref<SpineSkeleton> get_skeleton() override;
 
-	Ref<SpineAnimationState> get_animation_state();
+	Ref<SpineAnimationState> get_animation_state() override;
+
+	Node *owner_as_node() override { return this; }
 
 	void on_skeleton_data_changed();
 
