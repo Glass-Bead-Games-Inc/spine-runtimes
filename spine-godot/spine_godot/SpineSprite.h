@@ -209,7 +209,9 @@ public:
 
 	Ref<SpineAnimationState> get_animation_state() override;
 
-	Node *owner_as_node() override { return this; }
+	Node *owner_as_node() override {
+		return this;
+	}
 
 	void on_skeleton_data_changed();
 
