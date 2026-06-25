@@ -71,14 +71,14 @@ public class TransformConstraint extends Constraint<TransformConstraint, Transfo
 		BonePose source = this.source.appliedPose;
 		if (localSource) source.validateLocalTransform(skeleton);
 		FromProperty[] fromItems = data.properties.items;
-		int fn = data.properties.size, update = skeleton.update;
+		int fn = data.properties.size;
 		BonePose[] bones = this.bones.items;
 		for (int i = 0, n = this.bones.size; i < n; i++) {
 			BonePose bone = bones[i];
 			if (localTarget)
 				bone.modifyLocal(skeleton);
 			else
-				bone.modifyWorld(update);
+				bone.modifyWorld(skeleton);
 			for (int f = 0; f < fn; f++) {
 				FromProperty from = fromItems[f];
 				float value = from.value(skeleton, source, localSource, offsets) - from.offset;

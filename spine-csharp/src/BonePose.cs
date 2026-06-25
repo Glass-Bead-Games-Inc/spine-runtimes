@@ -358,23 +358,24 @@ namespace Spine {
 		internal void ModifyLocal (Skeleton skeleton) {
 			if (local == skeleton.update) UpdateLocalTransform(skeleton);
 			world = 0;
-			ResetWorld(skeleton.update);
+			ResetWorld(skeleton, skeleton.update);
 		}
 
-		internal void ModifyWorld (int update) {
+		internal void ModifyWorld (Skeleton skeleton) {
+			int update = skeleton.update;
 			local = update;
 			world = update;
-			ResetWorld(update);
+			ResetWorld(skeleton, update);
 		}
 
-		private void ResetWorld (int update) {
+		private void ResetWorld (Skeleton skeleton, int update) {
 			Bone[] children = bone.children.Items;
 			for (int i = 0, n = bone.children.Count; i < n; i++) {
 				BonePose child = children[i].appliedPose;
 				if (child.world == update) {
+					if (child.local == update) child.UpdateLocalTransform(skeleton);
 					child.world = 0;
-					child.local = 0;
-					child.ResetWorld(update);
+					child.ResetWorld(skeleton, update);
 				}
 			}
 		}

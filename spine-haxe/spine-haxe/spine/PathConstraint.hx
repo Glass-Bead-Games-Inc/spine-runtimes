@@ -165,9 +165,10 @@ class PathConstraint extends Constraint<PathConstraint, PathConstraintData, Path
 			var bone = slot.bone.appliedPose;
 			offsetRotation *= bone.a * bone.d - bone.b * bone.c > 0 ? MathUtils.degRad : -MathUtils.degRad;
 		}
-		var i = 0, ip = 3, u = skeleton._update;
+		var i = 0, ip = 3;
 		while (i < boneCount) {
 			var bone = bones[i];
+			bone.modifyWorld(skeleton);
 			bone.worldX += (boneX - bone.worldX) * mixX;
 			bone.worldY += (boneY - bone.worldY) * mixY;
 			var x = positions[ip], y = positions[ip + 1], dx = x - boneX, dy = y - boneY;
@@ -210,7 +211,6 @@ class PathConstraint extends Constraint<PathConstraint, PathConstraintData, Path
 				bone.c = sin * a + cos * c;
 				bone.d = sin * b + cos * d;
 			}
-			bone.modifyWorld(u);
 			i++;
 			ip += 3;
 		}

@@ -1,6 +1,6 @@
 {
   "name": "@esotericsoftware/spine-player",
-  "version": "4.3.8",
+  "version": "4.3.9",
   "description": "The official Spine Runtimes for the web.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/esotericsoftware/spine-runtimes.git"
+    "url": "git+https://github.com/EsotericSoftware/spine-runtimes.git"
   },
   "keywords": [
     "gamedev",
@@ -31,6 +31,6 @@
   },
   "homepage": "https://github.com/esotericsoftware/spine-runtimes#readme",
   "dependencies": {
-    "@esotericsoftware/spine-webgl": "4.3.8"
+    "@esotericsoftware/spine-webgl": "4.3.9"
   }
 }

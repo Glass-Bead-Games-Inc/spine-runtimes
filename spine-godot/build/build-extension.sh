@@ -24,6 +24,11 @@ if [ $dev == "true" ]; then
     options="$options dev_build=true"
 fi
 
+if [ ! -z "${GODOT_CPP_API_VERSION:-}" ]; then
+    echo "Godot C++ API version: $GODOT_CPP_API_VERSION"
+    options="$options api_version=$GODOT_CPP_API_VERSION generate_bindings=yes"
+fi
+
 if [ -z $raw_platform ]; then
     echo "Platform: current"
     platform=""

@@ -104,10 +104,10 @@ public class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsCons
 		boolean x = data.x > 0, y = data.y > 0, rotateOrShearX = data.rotate > 0 || data.shearX > 0, scaleX = data.scaleX > 0;
 		BonePose bone = this.bone;
 		float l = bone.bone.data.length, t = data.step, z = 0;
+		if (physics == Physics.none) return;
+		bone.modifyWorld(skeleton);
 
 		switch (physics) {
-		case none:
-			return;
 		case reset:
 			reset(skeleton);
 			// Fall through.
@@ -287,7 +287,6 @@ public class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsCons
 			tx = l * bone.a;
 			ty = l * bone.c;
 		}
-		bone.modifyWorld(skeleton.update);
 	}
 
 	void sort (Skeleton skeleton) {

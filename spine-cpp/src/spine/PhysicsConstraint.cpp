@@ -94,10 +94,10 @@ void PhysicsConstraint::update(Skeleton &skeleton, Physics physics) {
 	bool x = _data._x > 0, y = _data._y > 0, rotateOrShearX = _data._rotate > 0 || _data._shearX > 0, scaleX = _data._scaleX > 0;
 	BonePose *bone = _bone;
 	float l = bone->_bone->_data.getLength(), t = _data._step, z = 0;
+	if (physics == Physics_None) return;
+	bone->modifyWorld(skeleton);
 
 	switch (physics) {
-		case Physics_None:
-			return;
 		case Physics_Reset:
 			reset(skeleton);
 			// Fall through.
@@ -282,7 +282,6 @@ void PhysicsConstraint::update(Skeleton &skeleton, Physics physics) {
 		_tx = l * bone->_a;
 		_ty = l * bone->_c;
 	}
-	bone->modifyWorld(skeleton._update);
 }
 
 void PhysicsConstraint::sort(Skeleton &skeleton) {

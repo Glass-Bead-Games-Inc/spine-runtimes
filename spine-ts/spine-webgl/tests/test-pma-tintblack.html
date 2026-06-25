@@ -29,15 +29,15 @@
 </body>
 <script>
 
-	$("#light").change(function () {
+	$("#light").change(() => {
 		setColors();
 	});
 
-	$("#dark").change(function () {
+	$("#dark").change(() => {
 		setColors();
 	});
 
-	$("#pmaBlend").change(function () {
+	$("#pmaBlend").change(() => {
 		setColors();
 	});
 
@@ -138,7 +138,7 @@
 	function loadIvanShader(context, shader) {
 		var vs = shader.getVertexShaderSource();
 
-		let fs = `
+		const fs = `
 			#ifdef GL_ES
 				#define LOWP lowp
 				precision mediump float;

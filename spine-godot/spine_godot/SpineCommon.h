@@ -74,9 +74,7 @@ using namespace godot;
 #if VERSION_MAJOR > 3
 #include "core/core_bind.h"
 #include "core/error/error_macros.h"
-// callable_mp is no longer transitively included as of Godot 4.7, which also
-// renamed its header from callable_method_pointer.h to callable_mp.h.
-#if VERSION_MINOR >= 7
+#if VERSION_MAJOR > 4 || (VERSION_MAJOR == 4 && VERSION_MINOR >= 7)
 #include "core/object/callable_mp.h"
 #else
 #include "core/object/callable_method_pointer.h"
@@ -127,9 +125,9 @@ using namespace godot;
 // Godot 4.7 split the RenderingServer enums (ArrayType/ArrayFormat/PrimitiveType,
 // ARRAY_*, PRIMITIVE_*) into the RenderingServerEnums (RSE) struct and the types
 // (SurfaceData) into the RenderingServerTypes namespace. The GDExtension (godot-cpp)
-// and Godot <= 4.6 keep them on RenderingServer (RS).
-#if !defined(SPINE_GODOT_EXTENSION) && VERSION_MAJOR > 3 && VERSION_MINOR >= 7
-#define SPINE_RS_ENUM RSE
+// and Godot <= 4.6 keep them on RenderingServer (RS). Used by SpineSprite3D.
+#if !defined(SPINE_GODOT_EXTENSION) && (VERSION_MAJOR > 4 || (VERSION_MAJOR == 4 && VERSION_MINOR >= 7))
+#define SPINE_RS_ENUM RenderingServerEnums
 #define SPINE_RS_TYPE RenderingServerTypes
 #else
 #define SPINE_RS_ENUM RS
@@ -144,6 +142,14 @@ class SpineObjectWrapper : public REFCOUNTED {
 
 	Object *spine_owner;
 	void *spine_object;
+	// Owner instance id, kept so the destructor can disconnect safely without
+	// dereferencing a possibly-freed spine_owner pointer. (engine: ObjectID;
+	// GDExtension: raw uint64_t returned by Object::get_instance_id())
+#ifdef SPINE_GODOT_EXTENSION
+	uint64_t spine_owner_id;
+#else
+	ObjectID spine_owner_id;
+#endif
 
 protected:
 	static void _bind_methods() {
@@ -157,9 +163,32 @@ protected:
 #else
 		spine_owner->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"));
 #endif
+		spine_owner = nullptr;
 	}
 
-	SpineObjectWrapper() : spine_owner(nullptr), spine_object(nullptr) {
+	SpineObjectWrapper()
+		: spine_owner(nullptr), spine_object(nullptr), spine_owner_id() {
+	}
+
+	// Disconnect on destruction so a freed wrapper never leaves a dangling
+	// connection on its owner. Godot 4 (notably the GDExtension) does not reliably
+	// auto-remove a callable_mp connection when the receiver RefCounted is freed,
+	// so the owner's next _internal_spine_objects_invalidated emit would call into
+	// freed memory -> use-after-free crash.
+	~SpineObjectWrapper() {
+		if (!spine_owner) return;// never set, or already invalidated (already disconnected)
+		Object *owner = ObjectDB::get_instance(spine_owner_id);
+		if (!owner) return;// owner freed first -> it already removed the connection
+#if VERSION_MAJOR > 3
+		Callable c = callable_mp(this, &SpineObjectWrapper::spine_objects_invalidated);
+		if (owner->is_connected(SNAME("_internal_spine_objects_invalidated"), c)) {
+			owner->disconnect(SNAME("_internal_spine_objects_invalidated"), c);
+		}
+#else
+		if (owner->is_connected(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"))) {
+			owner->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("_internal_spine_objects_invalidated"));
+		}
+#endif
 	}
 
 	template<typename OWNER, typename OBJECT>
@@ -178,6 +207,7 @@ protected:
 		}
 
 		spine_owner = (Object *) _owner;
+		spine_owner_id = spine_owner->get_instance_id();
 		spine_object = _object;
 #if VERSION_MAJOR > 3
 		spine_owner->connect(SNAME("_internal_spine_objects_invalidated"), callable_mp(this, &SpineObjectWrapper::spine_objects_invalidated));

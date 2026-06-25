@@ -9,7 +9,7 @@
 
   <body>
     <script>
-      (async function () {
+      (async () => {
         var app = new PIXI.Application();
         await app.init({
           width: window.innerWidth,
@@ -50,14 +50,14 @@
 
         app.stage.on("pointerdown", (e) => {
           isDragging = true;
-          let mousePosition = new spine.Vector2(e.data.global.x, e.data.global.y);
+          const mousePosition = new spine.Vector2(e.data.global.x, e.data.global.y);
           lastX = mousePosition.x;
           lastY = mousePosition.y;
         });
 
         app.stage.on("pointermove", (e) => {
           if (isDragging) {
-            let mousePosition = new spine.Vector2(e.data.global.x, e.data.global.y);
+            const mousePosition = new spine.Vector2(e.data.global.x, e.data.global.y);
             girl.x += mousePosition.x - lastX;
             girl.y += mousePosition.y - lastY;
             lastX = mousePosition.x;

@@ -110,10 +110,10 @@ namespace Spine {
 			bool x = data.x > 0, y = data.y > 0, rotateOrShearX = data.rotate > 0 || data.shearX > 0, scaleX = data.scaleX > 0;
 			BonePose bone = this.bone;
 			float l = bone.bone.data.length, t = data.step, z = 0;
+			if (physics == Physics.None) return;
+			bone.ModifyWorld(skeleton);
 
 			switch (physics) {
-			case Physics.None:
-				return;
 			case Physics.Reset:
 				Reset(skeleton);
 				goto case Physics.Update; // Fall through.
@@ -298,7 +298,6 @@ namespace Spine {
 				tx = l * bone.a;
 				ty = l * bone.c;
 			}
-			bone.ModifyWorld(skeleton.update);
 		}
 
 		override public void Sort (Skeleton skeleton) {

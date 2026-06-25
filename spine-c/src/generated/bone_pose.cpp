@@ -41,9 +41,9 @@ void spine_bone_pose_modify_local(spine_bone_pose self, spine_skeleton skeleton)
 	_self->modifyLocal(*((Skeleton *) skeleton));
 }
 
-void spine_bone_pose_modify_world(spine_bone_pose self, int update) {
+void spine_bone_pose_modify_world(spine_bone_pose self, spine_skeleton skeleton) {
 	BonePose *_self = (BonePose *) self;
-	_self->modifyWorld(update);
+	_self->modifyWorld(*((Skeleton *) skeleton));
 }
 
 float spine_bone_pose_get_a(spine_bone_pose self) {

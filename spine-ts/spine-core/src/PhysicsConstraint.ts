@@ -124,10 +124,10 @@ export class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsCons
 		const x = this.data.x > 0, y = this.data.y > 0, rotateOrShearX = this.data.rotate > 0 || this.data.shearX > 0, scaleX = this.data.scaleX > 0;
 		const bone = this.bone;
 		let l = bone.bone.data.length, t = this.data.step, z = 0;
+		if (physics === Physics.none) return;
+		bone.modifyWorld(skeleton);
 
 		switch (physics) {
-			case Physics.none:
-				return;
 			// biome-ignore lint/suspicious/noFallthroughSwitchClause: fall through expected
 			case Physics.reset:
 				this.reset(skeleton); // Fall through.
@@ -307,7 +307,6 @@ export class PhysicsConstraint extends Constraint<PhysicsConstraint, PhysicsCons
 			this.tx = l * bone.a;
 			this.ty = l * bone.c;
 		}
-		bone.modifyWorld(skeleton._update);
 	}
 
 	sort (skeleton: Skeleton) {

@@ -2428,12 +2428,12 @@ tank.beforeUpdateWorldTransforms = (delta, skeleton, state) => {
             const popupOverlay = document.getElementById('popup-overlay');
 
             // Event listener to open the popup
-            openPopupButton.addEventListener('click', function() {
+            openPopupButton.addEventListener('click', () => {
                 popupOverlay.style.display = 'flex';
             });
 
             // Event listener to close the popup
-            closePopupButton.addEventListener('click', function() {
+            closePopupButton.addEventListener('click', () => {
                 popupOverlay.style.display = 'none';
             });
         </script>
@@ -2882,7 +2882,7 @@ const updateControl = (widget, controlBone, mouseX, mouseY, tempVector) => {
 
 
     <script>
-        function Smooth(f,t){var p=performance,b=p.now(),o=f,s=0,m,n,x,d,k=f;return function(v){n=p.now()-b;m=t*t/n/n;d=o-f;x=s*t+d+d;if(n>0)k=n<t?o-x/m/t*n+(x+x-d)/m-s*n-d:o;if(v!=void 0&&v!=o){f=k;b+=n;o=v;s=n>0&&n<t?s+3*x/m/t-(4*x-d-d)/m/n:0}return k}}
+        function Smooth(f,t){var p=performance,b=p.now(),o=f,s=0,m,n,x,d,k=f;return (v)=> {n=p.now()-b;m=t*t/n/n;d=o-f;x=s*t+d+d;if(n>0)k=n<t?o-x/m/t*n+(x+x-d)/m-s*n-d:o;if(v!=void 0&&v!=o){f=k;b+=n;o=v;s=n>0&&n<t?s+3*x/m/t-(4*x-d-d)/m/n:0}return k}}
     </script>
 
     <!--

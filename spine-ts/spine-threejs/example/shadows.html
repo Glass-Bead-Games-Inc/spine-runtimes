@@ -45,22 +45,22 @@
       let controls;
       let lastFrameTime = Date.now() / 1000;
 
-      let baseUrl = "/assets/";
-      let skeletonFile = "raptor-pro.json";
-      let atlasFile = "raptor.atlas";
-      let animation = "walk";
+      const baseUrl = "/assets/";
+      const skeletonFile = "raptor-pro.json";
+      const atlasFile = "raptor.atlas";
+      const animation = "walk";
 
-      let skeletonFile2 = "celestial-circus-pro.json";
-      let atlasFile2 = "celestial-circus.atlas";
-      let animation2 = "swing";
+      const skeletonFile2 = "celestial-circus-pro.json";
+      const atlasFile2 = "celestial-circus.atlas";
+      const animation2 = "swing";
 
-      let skeletonFile3 = "coin-pro.json";
-      let atlasFile3 = "coin-pma.atlas";
-      let animation3 = "animation";
+      const skeletonFile3 = "coin-pro.json";
+      const atlasFile3 = "coin-pma.atlas";
+      const animation3 = "animation";
 
       function init() {
         // create the THREE.JS camera, scene and renderer (WebGL)
-        let width = window.innerWidth,
+        const width = window.innerWidth,
           height = window.innerHeight;
         camera = new THREE.PerspectiveCamera(75, width / height, 1, 3000);
         camera.position.y = 700;
@@ -143,22 +143,22 @@
           atlasLoader3 = new spine.AtlasAttachmentLoader(atlas3);
 
           // Create a SkeletonJson instance for parsing the .json file.
-          let skeletonJson = new spine.SkeletonJson(atlasLoader);
-          let skeletonJson2 = new spine.SkeletonJson(atlasLoader2);
-          let skeletonJson3 = new spine.SkeletonJson(atlasLoader3);
+          const skeletonJson = new spine.SkeletonJson(atlasLoader);
+          const skeletonJson2 = new spine.SkeletonJson(atlasLoader2);
+          const skeletonJson3 = new spine.SkeletonJson(atlasLoader3);
 
           // Set the scale to apply during parsing, parse the file, and create a new skeleton.
           skeletonJson.scale = 0.4;
-          let skeletonData = skeletonJson.readSkeletonData(
+          const skeletonData = skeletonJson.readSkeletonData(
             assetManager.require(skeletonFile)
           );
           skeletonJson2.scale = 0.4;
-          let skeletonData2 = skeletonJson2.readSkeletonData(
+          const skeletonData2 = skeletonJson2.readSkeletonData(
             assetManager.require(skeletonFile2)
           );
 
           skeletonJson3.scale = 0.4;
-          let skeletonData3 = skeletonJson3.readSkeletonData(
+          const skeletonData3 = skeletonJson3.readSkeletonData(
             assetManager.require(skeletonFile3)
           );
 
@@ -227,11 +227,11 @@
         } else requestAnimationFrame(load);
       }
 
-      let lastTime = Date.now();
+      const lastTime = Date.now();
       function render() {
         // calculate delta time for animation purposes
-        let now = Date.now() / 1000;
-        let delta = now - lastFrameTime;
+        const now = Date.now() / 1000;
+        const delta = now - lastFrameTime;
         lastFrameTime = now;
 
         // resize canvas to use full page, adjust camera/renderer
@@ -252,8 +252,8 @@
       }
 
       function resize() {
-        let w = window.innerWidth;
-        let h = window.innerHeight;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
         if (canvas.width != w || canvas.height != h) {
           canvas.width = w;
           canvas.height = h;

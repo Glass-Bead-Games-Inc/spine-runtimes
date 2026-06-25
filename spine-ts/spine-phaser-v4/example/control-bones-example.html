@@ -56,7 +56,7 @@
             this.input.setDraggable(control);
             this.input.on(
               "drag",
-              function (pointer, gameObject, dragX, dragY) {
+              (pointer, gameObject, dragX, dragY) => {
                 gameObject.x = dragX;
                 gameObject.y = dragY;
               },
@@ -65,7 +65,7 @@
           }
 
           stretchyman.beforeUpdateWorldTransforms = () => {
-            for (let controlBone of controlBones) {
+            for (const controlBone of controlBones) {
               const bone = controlBone.getData("bone");
               const point = { x: controlBone.x, y: controlBone.y };
               stretchyman.phaserWorldCoordinatesToBone(point, bone);

@@ -19,7 +19,7 @@
   </body>
   <script>
     function log(message) {
-      let log = document.querySelector("#log");
+      const log = document.querySelector("#log");
       log.textContent += message + "\n";
       log.scrollTop = log.scrollHeight;
       console.log(message);

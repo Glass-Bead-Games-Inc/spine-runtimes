@@ -1,6 +1,6 @@
 {
   "name": "@esotericsoftware/spine-ts",
-  "version": "4.3.8",
+  "version": "4.3.9",
   "description": "The official Spine Runtimes for the web.",
   "type": "module",
   "files": [
@@ -57,7 +57,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/esotericsoftware/spine-runtimes.git"
+    "url": "git+https://github.com/EsotericSoftware/spine-runtimes.git"
   },
   "keywords": [
     "gamedev",

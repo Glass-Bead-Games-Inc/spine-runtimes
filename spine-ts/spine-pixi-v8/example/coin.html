@@ -11,7 +11,7 @@
 
   <body>
     <script>
-      (async function () {
+      (async () => {
         var app = new PIXI.Application();
         await app.init({
           width: window.innerWidth,
@@ -54,7 +54,7 @@
 
         const myObject = { time: 0, time2: 0 };
         let prevValue = myObject.time;
-        let prevValue2 = myObject.time2;
+        const prevValue2 = myObject.time2;
         spineboy.update(prevValue / 10)
 
         const gui = new lil.GUI({});

@@ -32,7 +32,7 @@
 			}
 
 			initialize(canvas) {
-				let assetManager = canvas.assetManager;
+				const assetManager = canvas.assetManager;
 
 				var atlas = assetManager.require("/assets/dragon-pma.atlas");
 				var atlasLoader = new spine.AtlasAttachmentLoader(atlas);
@@ -95,7 +95,7 @@
 			}
 
 			render(canvas) {
-				let renderer = canvas.renderer;
+				const renderer = canvas.renderer;
 				renderer.resize(spine.ResizeMode.Expand);
 				canvas.clear(0.2, 0.2, 0.2, 1);
 

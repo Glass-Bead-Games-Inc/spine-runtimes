@@ -21,6 +21,7 @@
   - Fixed `ScaleYMode_Volume` to avoid extreme scaleY values for very small scaleX factors.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed `Skeleton::updateWorldTransform()` to avoid copying draw order unless it is constrained.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
 
 - **Breaking changes**
   - Removed generated `spine_bone_pose_reset_world()` because resetWorld is an internal implementation detail.
@@ -38,6 +39,7 @@
   - Added `spine_pose`, `spine_posed`, and `spine_posed_active` base types
   - Regenerated the C API for the sequence attachment refactor in spine-cpp. `spine_region_attachment` and `spine_mesh_attachment` now mirror the new non-null `Sequence` model exposed by the C++ runtime.
   - IK constraint data now uses `spine_scale_y` instead of the old `uniform` boolean, matching spine-cpp.
+  - `spine_bone_pose_modify_world()` now takes a `spine_skeleton` instead of an update counter.
   - `spine_ik_constraint_data_get_scale_y()` / `spine_ik_constraint_data_set_scale_y()` and `spine_scale_y` renamed to `spine_ik_constraint_data_get_scale_y_mode()` / `spine_ik_constraint_data_set_scale_y_mode()` and `spine_scale_y_mode`.
 
 - **Breaking changes**
@@ -135,9 +137,11 @@
   - Fixed `InheritTimeline` so inherit keys are applied to the keyed bone instead of an uninitialized bone index.
   - Fixed `AnimationState` attachment timeline handling so deforms are applied correctly when an attachment is hidden in the setup pose.
   - Fixed `Skeleton::updateWorldTransform()` to avoid copying draw order unless it is constrained.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
 
 - **Breaking changes**
   - `MathUtil::Epsilon2` renamed to `MathUtil::EpsilonSq`.
+  - `BonePose::modifyWorld()` now takes a `Skeleton &` instead of an update counter.
   - `BonePose::resetWorld()` is now private.
   - `AttachmentLoader` methods now receive both the skin `placeholder` and resolved attachment `name`. `Skin::AttachmentMap::Entry::_placeholderName` renamed to `_placeholder`.
   - `AnimationState::getCurrent()` renamed to `AnimationState::getTrack()`.
@@ -288,6 +292,9 @@
   - Added Blueprint APIs for `TrackEntry` mix interpolation.
   - Added convex and inverse clipping support through the updated spine-cpp clipping runtime.
 
+- **Bug fixes**
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+
 - **Breaking changes**
   - Custom C++ `AttachmentLoader` implementations now receive both the skin `placeholder` and resolved attachment `name`.
   - `USpineSkeletonAnimationComponent::GetCurrent()` renamed to `GetTrack()`.
@@ -305,15 +312,21 @@
   - Added `SpineTrackEntry.get_additive()` / `set_additive()` for additive blending per track entry.
 
 - **Bug fixes**
+  - Fixed Godot wrapper crashes from invalid skin attachment lookups, wrong constraint type filtering, stale cached bone/slot wrappers after skeleton rebuilds, dangling `SpineSlotNode` connections after unparenting, and stale Godot 3 wrapper signal connections.
+  - Fixed `SpineSprite` debug drawing and global bone transform helpers to work when a skeleton exists without an animation state.
   - Fixed draw order timelines not mixing out to the setup pose.
   - Fixed editor crashes when assigning skeleton data with slider animations that key slots or constraints.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
   - Fixed `SpineAnimationTrack` editor preview paths for nested `AnimationPlayer` roots, and prevented inactive tracks from clearing `SpineSprite` preview animations.
   - Fixed GDExtension animation mix editing in the Godot inspector.
   - Fixed `SpineBoneNode` and `SpineSlotNode` transforms when bones use negative scale or shear, and applied `SpineBoneNode` Drive mode before world transforms are computed.
   - Updated Godot 4.x CI builds to Godot 4.6.2.
   - Fixed Godot 4.6 Windows editor CI builds by installing Direct3D 12 SDK dependencies before building Godot.
   - Fixed Godot 4.6 GDExtension builds with the latest `godot-cpp` by including the required `Ref` support header in `SpineCommon.h`, updated `SpineEventData` for the `EventData.setupPose` API change, and refreshed vendored `spine-cpp` sources during clean setup.
+  - Fixed Godot 4.7 module and GDExtension build compatibility.
+  - Fixed Godot 4.7 Windows module CI builds by updating the Godot 4.x SCons dependency.
+  - Fixed Godot 3.6 Windows CI builds by not generating Visual Studio project files when building with MinGW.
   - Fixed Godot 3.x builds by avoiding the Godot 4-only `Transform2D(Vector2, Vector2, Vector2)` constructor.
 
 - **Breaking changes (since previous 4.3 beta)**
@@ -567,9 +580,11 @@
   - Fixed bones that don't inherit rotation when parent scale is near zero.
   - Fixed `BonePose.updateLocalTransform(_:)` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld(_:)` because resetWorld is an internal implementation detail.
+  - Generated `BonePose.modifyWorld(_:)` now takes a `Skeleton` instead of an update counter.
   - Generated SpineSwift attachment loader APIs now receive both the skin `placeholder` and resolved attachment `name`.
   - `AnimationState.getCurrent(_:)` renamed to `AnimationState.getTrack(_:)` in SpineSwift.
   - SpineSwift mesh attachment APIs now use `sourceMesh` naming instead of `parentMesh` to match spine-cpp.
@@ -593,9 +608,11 @@
   - Fixed bones that don't inherit rotation when parent scale is near zero.
   - Fixed `BonePose.updateLocalTransform()` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld()` because resetWorld is an internal implementation detail.
+  - Generated `BonePose.modifyWorld()` now takes a `Skeleton` instead of an update counter.
   - Generated Dart attachment loader APIs now receive both the skin `placeholder` and resolved attachment `name`.
   - `AnimationState.getCurrent()` renamed to `AnimationState.getTrack()`.
   - The Dart runtime is now fully auto-generated from the C runtime, maintaining the full C++ type hierarchy with proper nullability annotations
@@ -630,9 +647,11 @@
   - Fixed bones that don't inherit rotation when parent scale is near zero.
   - Fixed `BonePose.updateLocalTransform()` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld()` because resetWorld is an internal implementation detail.
+  - Generated Flutter `BonePose.modifyWorld()` now takes a `Skeleton` instead of an update counter.
   - `AnimationState.getCurrent()` renamed to `AnimationState.getTrack()`.
   - Generated Flutter attachment loader APIs now receive both the skin `placeholder` and resolved attachment `name`.
   - Generated Flutter mesh attachment APIs now use `sourceMesh` naming instead of `parentMesh` to match spine-cpp.

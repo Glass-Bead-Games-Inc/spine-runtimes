@@ -42,7 +42,7 @@
 			}
 
 			initialize(canvas) {
-				let assetManager = canvas.assetManager;
+				const assetManager = canvas.assetManager;
 
 				// Create the texture atlas.
 				var atlas = assetManager.require("/assets/celestial-circus-pma.atlas");
@@ -80,7 +80,7 @@
                     down: (x, y) => {
                         // Calculate the mouse position in the coordinate space of the camera, aka world space.
                         // The skeleton and its bones live in the same coordinate space.
-                        let mousePosition = new spine.Vector3(x, y);
+                        const mousePosition = new spine.Vector3(x, y);
                         canvas.renderer.camera.screenToWorld(mousePosition, canvas.htmlCanvas.clientWidth, canvas.htmlCanvas.clientHeight);
 
                         lastX = mousePosition.x;
@@ -89,7 +89,7 @@
                     dragged: (x, y) => {
                         // Calculate the mouse position in the coordinate space of the camera, aka world space.
                         // The skeleton and its bones live in this coordinate space.
-                        let mousePosition = new spine.Vector3(x, y);
+                        const mousePosition = new spine.Vector3(x, y);
                         canvas.renderer.camera.screenToWorld(mousePosition, canvas.htmlCanvas.clientWidth, canvas.htmlCanvas.clientHeight);
 
 						this.skeleton.x += mousePosition.x - lastX;
@@ -114,7 +114,7 @@
 			}
 
 			render(canvas) {
-				let renderer = canvas.renderer;
+				const renderer = canvas.renderer;
 				// Resize the viewport to the full canvas.
 				renderer.resize(spine.ResizeMode.Expand);
 

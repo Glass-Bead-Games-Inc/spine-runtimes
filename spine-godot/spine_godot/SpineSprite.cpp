@@ -66,7 +66,6 @@
 #include "servers/rendering_server.h"
 #endif
 #include "scene/resources/canvas_item_material.h"
-#include "scene/main/scene_tree.h"// get_tree()-> member access; not transitively included in Godot 4.7
 #if VERSION_MINOR > 0 && defined(TOOLS_ENABLED)
 #include "editor/editor_interface.h"
 #endif
@@ -76,6 +75,9 @@
 
 #include "scene/gui/control.h"
 #include "scene/main/viewport.h"
+#if VERSION_MAJOR > 3
+#include "scene/main/scene_tree.h"
+#endif
 
 #if TOOLS_ENABLED
 
@@ -231,16 +233,13 @@ void SpineMesh2D::update_mesh(const PackedVector2Array &vertices, const PackedVe
 		arrays[Mesh::ARRAY_TEX_UV] = uvs;
 		arrays[Mesh::ARRAY_COLOR] = colors;
 		arrays[Mesh::ARRAY_INDEX] = indices;
-		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, SPINE_RS_ENUM::PrimitiveType::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
-														  SPINE_RS_ENUM::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+		RS::get_singleton()->mesh_add_surface_from_arrays(mesh, RS::PrimitiveType::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(),
+														  RS::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
 		Dictionary surface = RS::get_singleton()->mesh_get_surface(mesh, 0);
-		SPINE_RS_ENUM::ArrayFormat surface_format = (SPINE_RS_ENUM::ArrayFormat) static_cast<int64_t>(surface["format"]);
-		surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
-																										   SPINE_RS_ENUM::ARRAY_VERTEX);
-		surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
-																										  SPINE_RS_ENUM::ARRAY_COLOR);
-		surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(),
-																										   SPINE_RS_ENUM::ARRAY_TEX_UV);
+		RS::ArrayFormat surface_format = (RS::ArrayFormat) static_cast<int64_t>(surface["format"]);
+		surface_offsets[RS::ARRAY_VERTEX] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_VERTEX);
+		surface_offsets[RS::ARRAY_COLOR] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_COLOR);
+		surface_offsets[RS::ARRAY_TEX_UV] = RS::get_singleton()->mesh_surface_get_format_offset(surface_format, vertices.size(), RS::ARRAY_TEX_UV);
 		vertex_stride = RS::get_singleton()->mesh_surface_get_format_vertex_stride(surface_format, vertices.size());
 		attribute_stride = RS::get_singleton()->mesh_surface_get_format_attribute_stride(surface_format, vertices.size());
 		vertex_buffer = surface["vertex_data"];
@@ -265,9 +264,9 @@ void SpineMesh2D::update_mesh(const PackedVector2Array &vertices, const PackedVe
 			}
 
 			float uv[2] = {(float) uvs[i].x, (float) uvs[i].y};
-			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR]], color, 4);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV]], uv, 8);
+			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RS::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_COLOR]], color, 4);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_TEX_UV]], uv, 8);
 		}
 		RS::get_singleton()->mesh_surface_update_vertex_region(mesh, 0, 0, vertex_buffer);
 		RS::get_singleton()->mesh_surface_update_attribute_region(mesh, 0, 0, attribute_buffer);
@@ -296,11 +295,20 @@ void SpineMesh2D::update_mesh(const Vector<Point2> &vertices, const Vector<Point
 		arrays[Mesh::ARRAY_TEX_UV] = uvs;
 		arrays[Mesh::ARRAY_COLOR] = colors;
 		arrays[Mesh::ARRAY_INDEX] = indices;
-		SPINE_RS_TYPE::SurfaceData surface;
+#if VERSION_MAJOR >= 4 && VERSION_MINOR >= 7
+		RenderingServerTypes::SurfaceData surface;
+#else
+		RS::SurfaceData surface;
+#endif
 		uint32_t skin_stride;
-		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (SPINE_RS_ENUM::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
+#if VERSION_MAJOR >= 4 && VERSION_MINOR >= 7
+		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, RSE::PRIMITIVE_TRIANGLES, arrays, TypedArray<Array>(), Dictionary(),
+																  Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+#else
+		RS::get_singleton()->mesh_create_surface_data_from_arrays(&surface, (RS::PrimitiveType) Mesh::PRIMITIVE_TRIANGLES, arrays,
 																  TypedArray<Array>(), Dictionary(),
 																  Mesh::ArrayFormat::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+#endif
 		RS::get_singleton()->mesh_add_surface(mesh, surface);
 #if VERSION_MINOR > 1
 		RS::get_singleton()->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count, surface_offsets,
@@ -331,9 +339,15 @@ void SpineMesh2D::update_mesh(const Vector<Point2> &vertices, const Vector<Point
 			}
 
 			float uv[2] = {(float) uvs[i].x, (float) uvs[i].y};
-			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_COLOR]], color, 4);
-			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[SPINE_RS_ENUM::ARRAY_TEX_UV]], uv, 8);
+#if VERSION_MAJOR >= 4 && VERSION_MINOR >= 7
+			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RSE::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RSE::ARRAY_COLOR]], color, 4);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RSE::ARRAY_TEX_UV]], uv, 8);
+#else
+			memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RS::ARRAY_VERTEX]], &vertex, sizeof(float) * 2);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_COLOR]], color, 4);
+			memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_TEX_UV]], uv, 8);
+#endif
 		}
 		RS::get_singleton()->mesh_surface_update_vertex_region(mesh, 0, 0, vertex_buffer);
 		RS::get_singleton()->mesh_surface_update_attribute_region(mesh, 0, 0, attribute_buffer);
@@ -1042,7 +1056,7 @@ void createLinesFromMesh(Vector<Vector2> &scratch_points, spine::Array<unsigned 
 }
 
 void SpineSprite::draw() {
-	if (!animation_state.is_valid() && !skeleton.is_valid()) return;
+	if (!skeleton.is_valid()) return;
 	if (!Engine::get_singleton()->is_editor_hint() && !get_tree()->is_debugging_collisions_hint()) return;
 
 	auto &statics = SpineSpriteStatics::instance();
@@ -1274,14 +1288,16 @@ void SpineSprite::draw() {
 	draw_set_transform(mouse_position + Vector2(20, 0), -get_global_rotation(),
 					   Vector2(inverse_zoom * (1 / global_scale.x), inverse_zoom * (1 / global_scale.y)));
 
-	Ref<Font> default_font;
-	auto control = memnew(Control);
+	if (!debug_font.is_valid()) {
+		auto control = memnew(Control);
 #if VERSION_MAJOR > 3
-	default_font = control->get_theme_default_font();
+		debug_font = control->get_theme_default_font();
 #else
-	default_font = control->get_font(SNAME("font"), SNAME("Label"));
+		debug_font = control->get_font(SNAME("font"), SNAME("Label"));
 #endif
-	memdelete(control);
+		memdelete(control);
+	}
+	const Ref<Font> &default_font = debug_font;
 
 #if VERSION_MAJOR > 3
 #ifdef SPINE_GODOT_EXTENSION
@@ -1375,7 +1391,7 @@ void SpineSprite::callback(spine::AnimationState *state, spine::EventType type, 
 }
 
 Transform2D SpineSprite::get_global_bone_transform(const String &bone_name) {
-	if (!animation_state.is_valid() && !skeleton.is_valid()) return get_global_transform();
+	if (!skeleton.is_valid()) return get_global_transform();
 	auto bone = skeleton->find_bone(bone_name);
 	if (!bone.is_valid()) {
 		return get_global_transform();
@@ -1384,7 +1400,7 @@ Transform2D SpineSprite::get_global_bone_transform(const String &bone_name) {
 }
 
 void SpineSprite::set_global_bone_transform(const String &bone_name, Transform2D transform) {
-	if (!animation_state.is_valid() && !skeleton.is_valid()) return;
+	if (!skeleton.is_valid()) return;
 	auto bone = skeleton->find_bone(bone_name);
 	if (!bone.is_valid()) return;
 	bone->set_global_transform(transform);

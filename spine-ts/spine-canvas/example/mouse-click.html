@@ -30,10 +30,10 @@
 		await assetManager.loadAll();
 
 		// Create the texture atlas and skeleton data.
-		let atlas = assetManager.require("spineboy.atlas");
-		let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-		let skeletonJson = new spine.SkeletonJson(atlasLoader);
-		let skeletonData = skeletonJson.readSkeletonData(assetManager.require("spineboy-ess.json"));
+		const atlas = assetManager.require("spineboy.atlas");
+		const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+		const skeletonJson = new spine.SkeletonJson(atlasLoader);
+		const skeletonData = skeletonJson.readSkeletonData(assetManager.require("spineboy-ess.json"));
 
 		// Instantiate a new skeleton based on the atlas and skeleton data.
 		skeleton = new spine.Skeleton(skeletonData);
@@ -45,7 +45,7 @@
 		skeleton.setAttachment("head-bb", "head");
 
 		// Setup an animation state with a default mix of 0.2 seconds.
-		let animationStateData = new spine.AnimationStateData(skeleton.data);
+		const animationStateData = new spine.AnimationStateData(skeleton.data);
 		animationStateData.defaultMix = 0.2;
 		animationState = new spine.AnimationState(animationStateData);
 
@@ -53,20 +53,20 @@
 		// was clicked.
 		canvas.addEventListener('click', event => {
 			// Make the mouse click coordinates relative to the canvas.
-			let canvasRect = canvas.getBoundingClientRect();
-			let mouseX = event.x - canvasRect.x;
-			let mouseY = event.y - canvasRect.y;
+			const canvasRect = canvas.getBoundingClientRect();
+			const mouseX = event.x - canvasRect.x;
+			const mouseY = event.y - canvasRect.y;
 
 			// Create and update a SkeletonBounds instance for later hit testing.
-			let skelBounds = new spine.SkeletonBounds();
+			const skelBounds = new spine.SkeletonBounds();
 			skelBounds.update(skeleton);
 
 			// Check if the mouse coordinates are inside any of the bounding box
 			// attachments of the skeleton. If so, play the jump animation, followed
 			// by a looping run animation.
 			if (skelBounds.containsPoint(mouseX, mouseY)) {
-				let jumpEntry = animationState.setAnimation(0, "jump", false);
-				let walkEntry = animationState.addAnimation(0, "run", true);
+				const jumpEntry = animationState.setAnimation(0, "jump", false);
+				const walkEntry = animationState.addAnimation(0, "run", true);
 			}
 		});
 
@@ -75,8 +75,8 @@
 
 	function render() {
 		// Calculate the delta time between this and the last frame in seconds.
-		let now = Date.now() / 1000;
-		let delta = now - lastFrameTime;
+		const now = Date.now() / 1000;
+		const delta = now - lastFrameTime;
 		lastFrameTime = now;
 
 		// Resize the canvas drawing buffer if the canvas CSS width and height changed
@@ -90,7 +90,7 @@
 		// Center the skeleton and resize it so it fits inside the canvas.
 		skeleton.x = canvas.width / 2;
 		skeleton.y = canvas.height - canvas.height * 0.1;
-		let scale = canvas.height / bounds.height * 0.8;
+		const scale = canvas.height / bounds.height * 0.8;
 		skeleton.scaleX = scale;
 		skeleton.scaleY = -scale;
 
@@ -106,8 +106,8 @@
 
 	// Checks if the point given by x/y are within the circle.
 	function pointInCircle(x, y, circleX, circleY, circleRadius) {
-		let distX = x - circleX;
-		let distY = y - circleY;
+		const distX = x - circleX;
+		const distY = y - circleY;
 		return distX * distX + distY * distY <= circleRadius * circleRadius;
 	}
 

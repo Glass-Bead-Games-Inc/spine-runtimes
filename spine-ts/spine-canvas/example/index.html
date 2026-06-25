@@ -30,10 +30,10 @@
 		await assetManager.loadAll();
 
 		// Create the texture atlas and skeleton data.
-		let atlas = assetManager.require("spineboy.atlas");
-		let atlasLoader = new spine.AtlasAttachmentLoader(atlas);
-		let skeletonBinary = new spine.SkeletonBinary(atlasLoader);
-		let skeletonData = skeletonBinary.readSkeletonData(assetManager.require("spineboy-pro.skel"));
+		const atlas = assetManager.require("spineboy.atlas");
+		const atlasLoader = new spine.AtlasAttachmentLoader(atlas);
+		const skeletonBinary = new spine.SkeletonBinary(atlasLoader);
+		const skeletonData = skeletonBinary.readSkeletonData(assetManager.require("spineboy-pro.skel"));
 
 		// Instantiate a new skeleton based on the atlas and skeleton data.
 		skeleton = new spine.Skeleton(skeletonData);
@@ -70,7 +70,7 @@
 		// Center the skeleton and resize it so it fits inside the canvas.
 		skeleton.x = canvas.width / 2;
 		skeleton.y = canvas.height - canvas.height * 0.1;
-		let scale = canvas.height / bounds.height * 0.8;
+		const scale = canvas.height / bounds.height * 0.8;
 		skeleton.scaleX = scale;
 		skeleton.scaleY = -scale;
 

@@ -77,14 +77,14 @@ export class TransformConstraint extends Constraint<TransformConstraint, Transfo
 		const source = this.source.appliedPose;
 		if (localSource) source.validateLocalTransform(skeleton);
 		const fromItems = data.properties;
-		const fn = data.properties.length, update = skeleton._update;
+		const fn = data.properties.length;
 		const bones = this.bones;
 		for (let i = 0, n = this.bones.length; i < n; i++) {
 			const bone = bones[i];
 			if (localTarget)
 				bone.modifyLocal(skeleton);
 			else
-				bone.modifyWorld(update);
+				bone.modifyWorld(skeleton);
 			for (let f = 0; f < fn; f++) {
 				const from = fromItems[f];
 				const value = from.value(skeleton, source, localSource, offsets) - from.offset;

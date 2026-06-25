@@ -23,8 +23,7 @@ runs:
       shell: bash
       run: |
         python -c "import sys; print(sys.version)"
-        # Godot 4.7 + Visual Studio 2022 requires SCons >= 4.8.0.
-        python -m pip install "scons>=4.8.0"
+        python -m pip install scons==4.8.1
         scons --version
 
     - name: Setup dotnet 8

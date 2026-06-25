@@ -1,3 +1,10 @@
+# 4.3.5
+
+## Flutter
+
+- **Bug fixes**
+  - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+
 # 4.3.4
 
 ## Flutter
