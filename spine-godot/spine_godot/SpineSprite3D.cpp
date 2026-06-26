@@ -106,13 +106,16 @@ public:
 private:
 	// Build GLSL source for the requested variant.
 	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} x {unshaded, shaded} variants.
-	// The DISPLAY material never writes depth and never casts (depth_draw_never, shadows_disabled): the
-	// flat parts layer purely by surface/draw order so they cannot z-fight at any view angle. Shadow
+	// The DISPLAY material writes depth (depth_draw_opaque) but does not cast (shadows_disabled). Writing
+	// depth keeps the sprite in the camera depth buffer so screen-space depth effects (fog, water, SSAO,
+	// DOF) and scene occlusion work correctly. With coplanar parts (z_spacing 0 / small) the opaque pixels
+	// of overlapping parts share the same depth, so they layer by draw order without z-fighting. Shadow
 	// casting is handled by a SEPARATE shadows-only RS instance (see build_meshes / build_shadow_shader_source),
-	// so `casts` no longer affects the display shader. It is still threaded through the material cache key
+	// so `casts` no longer affects the display shader; it is still threaded through the material cache key
 	// to keep the variant arrays/keys structurally parallel to the shadow path.
-	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
-		(void) casts;// display material is depth_draw_never/shadows_disabled regardless of cast setting
+	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+									  SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
+		(void) casts;// display is shadows_disabled regardless of cast setting (shadows come from the separate caster)
 		const char *filter_hint = texture_filter_hint(filter);
 		// Blend mode -> render_mode token
 		String rm;
@@ -131,7 +134,26 @@ private:
 				break;// Normal (Screen unsupported -> treat as normal)
 		}
 
-		// Vertex shader (same for shaded and unshaded)
+		// Assemble the depth-write render_mode token per alpha_cut mode. Sprite3D parity:
+		//  - DISABLED:      depth_draw_opaque   (alpha blend, no opaque depth from the alpha pixels)
+		//  - DISCARD:       depth_draw_opaque   + scissor discard (kept pixels write opaque depth -> hard cut)
+		//  - OPAQUE_PREPASS:depth_prepass_alpha (alpha pre-pass writes opaque depth -> soft edges cut fog/water)
+		//  - HASH:          depth_prepass_alpha (TODO true alpha-hash; same as OPAQUE_PREPASS for now)
+		const char *depth_mode = (alpha_cut == SpineSprite3D::ALPHA_CUT_OPAQUE_PREPASS || alpha_cut == SpineSprite3D::ALPHA_CUT_HASH)
+			? "depth_prepass_alpha"
+			: "depth_draw_opaque";
+		const char *cull_mode = double_sided ? "cull_disabled" : "cull_back";
+
+		// shadows_disabled coexists with depth_prepass_alpha: the pre-pass is a camera-depth
+		// pass, shadows_disabled only suppresses the light/shadow pass. The separate shadow
+		// caster still owns shadow casting. Verified to compile with both in one render_mode.
+		String extra_rm;
+		if (no_depth_test) extra_rm += ", depth_test_disabled";
+
+		const bool scissor = (alpha_cut == SpineSprite3D::ALPHA_CUT_DISCARD);
+
+		// Vertex shader (same for shaded and unshaded). fixed_size is applied AFTER the
+		// billboard block via the standard Godot snippet, gated on the fixed_size_enabled uniform.
 		String vertex_fn = "void vertex() {\n"
 						   "    if (billboard_mode == 1) {\n"
 						   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
@@ -146,35 +168,75 @@ private:
 						   "            MODEL_MATRIX[3]);\n"
 						   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
 						   "    }\n"
+						   "    if (fixed_size_enabled) {\n"
+						   "        if (PROJECTION_MATRIX[3][3] != 0.0) {\n"
+						   "            float h = abs(1.0 / (2.0 * PROJECTION_MATRIX[1][1]));\n"
+						   "            float sc = (h * 2.0);\n"
+						   "            MODELVIEW_MATRIX[0] *= sc;\n"
+						   "            MODELVIEW_MATRIX[1] *= sc;\n"
+						   "            MODELVIEW_MATRIX[2] *= sc;\n"
+						   "        } else {\n"
+						   "            float sc = -(MODELVIEW_MATRIX)[3].z;\n"
+						   "            MODELVIEW_MATRIX[0] *= sc;\n"
+						   "            MODELVIEW_MATRIX[1] *= sc;\n"
+						   "            MODELVIEW_MATRIX[2] *= sc;\n"
+						   "        }\n"
+						   "    }\n"
+						   // Per-part view-independent depth offset, applied in VIEW space (linear meters).
+						   // VERTEX.z == -i * z_spacing, so VERTEX.z / layer_z_spacing recovers the draw-order index -i.
+						   // We push each part toward the camera by (draw_order * depth_offset) METERS along the view
+						   // axis BEFORE projection. Two benefits: (1) along the view axis it never collapses at grazing
+						   // angles the way world-space z_spacing does, and (2) being in linear meters it is NOT amplified
+						   // by the near plane the way a clip-space/NDC offset is (a small near stretches NDC enormously,
+						   // turning a tiny NDC step into meters of real depth). depth_offset is meters-per-draw-order.
+						   // Only overrides POSITION when enabled, so default behavior is unchanged.
+						   "    if (layer_z_spacing > 0.0 && depth_offset != 0.0) {\n"
+						   "        vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);\n"
+						   "        _vpos.z -= (VERTEX.z / layer_z_spacing) * depth_offset;\n"
+						   "        POSITION = PROJECTION_MATRIX * _vpos;\n"
+						   "    }\n"
 						   "}\n";
+
+		// Shared uniforms block (present on both shaded and unshaded variants).
+		String common_uniforms = String("uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n") +
+			"uniform bool fixed_size_enabled = false;\n"
+			"uniform vec4 modulate_color = vec4(1.0);\n"
+			"uniform float layer_z_spacing = 0.0;\n"
+			"uniform float depth_offset = 0.0;\n";
+		if (scissor) common_uniforms += "uniform float alpha_scissor_threshold = 0.5;\n";
+
+		// Fragment alpha/albedo: compute alpha into `a`, apply scissor if needed, then modulate.
+		String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c;"
+								  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb;";
+		String alpha_calc = "    float a = tex.a * COLOR.a;\n"
+							"    ALPHA = a;\n"
+							"    ALBEDO *= modulate_color.rgb;\n"
+							"    ALPHA *= modulate_color.a;\n";
+		// DISCARD mode: assign the engine BUILT-IN ALPHA_SCISSOR_THRESHOLD instead of doing a manual
+		// `if (a < t) discard;`. Only writing this built-in sets the shader's uses_alpha_clip flag,
+		// which makes the engine render the material in the OPAQUE pass and populate the opaque depth
+		// buffer that fog/water/depth effects sample -> the sprite gets cut at the water line. A
+		// hand-rolled discard leaves uses_alpha=true / uses_alpha_clip=false -> has_base_alpha ->
+		// alpha-blend (transparent) pass -> no opaque depth -> no cut. The engine performs the discard
+		// itself from this threshold (matches BaseMaterial3D, material.cpp:1813).
+		if (scissor) alpha_calc += "    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n";
 
 		if (!shaded) {
 			// Unshaded variant: flat rendering, no lighting, no shadow participation.
-			String frag = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
-							  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
-
-			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_never, shadows_disabled" +
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", " + cull_mode + ", unshaded, " + depth_mode + ", shadows_disabled" +
+				extra_rm +
 				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
-				filter_hint +
-				";\n"
-				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-				"\n" +
-				vertex_fn +
+				filter_hint + ";\n" + common_uniforms + "\n" + vertex_fn +
 				"\n"
 				"void fragment() {\n"
 				"    " +
-				frag +
-				"\n"
-				"}\n";
+				albedo_alpha + "\n" + alpha_calc + "}\n";
 		} else {
 			// Shaded variant: participates in lighting and shadows.
 			// PMA handling same as unshaded; normal/specular maps are optional.
-			String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
-									  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
-
-			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, depth_draw_never, shadows_disabled" +
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", " + cull_mode + ", " + depth_mode + ", shadows_disabled" + extra_rm +
 				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
@@ -187,25 +249,23 @@ private:
 				filter_hint +
 				";\n"
 				"uniform bool use_normal_tex = false;\n"
-				"uniform bool use_specular_tex = false;\n"
-				"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
-				"\n" +
-				vertex_fn +
+				"uniform bool use_specular_tex = false;\n" +
+				common_uniforms + "\n" + vertex_fn +
 				"\n"
 				"void fragment() {\n"
 				"    " +
-				albedo_alpha +
-				"\n"
+				albedo_alpha + "\n" + alpha_calc +
 				"    if (use_normal_tex) NORMAL_MAP = texture(normal_tex, UV).rgb;\n"
 				"    if (use_specular_tex) SPECULAR = texture(specular_tex, UV).r;\n"
 				"}\n";
 		}
 	}
 
-	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
+	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+											 SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
 		Ref<Shader> shader;
 		shader.instantiate();
-		shader->set_code(build_shader_source(blend, shaded, pma, filter, casts));
+		shader->set_code(build_shader_source(blend, shaded, pma, filter, casts, alpha_cut, no_depth_test, double_sided));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -286,8 +346,24 @@ private:
 	}
 
 public:
-	// Cache key: casts * 64 + filter * 16 + blend * 4 + shaded * 2 + pma  (max index = 64 + 3*16 + 3*4+2+1 = 127)
-	Ref<ShaderMaterial> materials[128];
+	// Display material variant cache. `casts` no longer varies the display shader (display is
+	// always shadows_disabled; the separate caster owns shadows), so it is dropped from the key.
+	// Shader-affecting dimensions, packed low->high:
+	//   pma(1 bit) | shaded(1) | blend(2) | filter(2) | alpha_cut(2) | no_depth_test(1) | double_sided(1)
+	// Total distinct variants = 2*2*4*4*4*2*2 = 2048. A HashMap<uint32_t, ...> holds them sparsely.
+	static uint32_t variant_key(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter,
+								SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
+		uint32_t blend2 = (blend == spine::BlendMode_Additive) ? 1u : (blend == spine::BlendMode_Multiply) ? 2u : 0u;// Normal/Screen -> 0
+		uint32_t key = (pma ? 1u : 0u);
+		key |= (shaded ? 1u : 0u) << 1;
+		key |= (blend2 & 0x3u) << 2;
+		key |= ((uint32_t) filter & 0x3u) << 4;
+		key |= ((uint32_t) alpha_cut & 0x3u) << 6;
+		key |= (no_depth_test ? 1u : 0u) << 8;
+		key |= (double_sided ? 1u : 0u) << 9;
+		return key;
+	}
+	HashMap<uint32_t, Ref<ShaderMaterial>> materials;
 	// Shadow caster BASE materials (shader only, no texture). Key: (int)filter * 2 + (pma ? 1 : 0), max index 7.
 	// These are cloned per-texture into SpineSprite3D::shadow_material_cache, exactly like the display
 	// base materials above are cloned into material_cache.
@@ -306,10 +382,11 @@ public:
 		return lines_shader;
 	}
 
-	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
-		int key = (casts ? 64 : 0) + (int) filter * 16 + (int) blend * 4 + (shaded ? 2 : 0) + (pma ? 1 : 0);
-		if (!materials[key].is_valid()) {
-			materials[key] = make_material(blend, shaded, pma, filter, casts);
+	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+									 SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
+		uint32_t key = variant_key(blend, shaded, pma, filter, alpha_cut, no_depth_test, double_sided);
+		if (!materials.has(key) || !materials[key].is_valid()) {
+			materials[key] = make_material(blend, shaded, pma, filter, casts, alpha_cut, no_depth_test, double_sided);
 		}
 		return materials[key];
 	}
@@ -372,6 +449,28 @@ void SpineSprite3D::_bind_methods() {
 	BIND_ENUM_CONSTANT(TEXTURE_FILTER_LINEAR_MIPMAP);
 	ClassDB::bind_method(D_METHOD("set_shaded", "v"), &SpineSprite3D::set_shaded);
 	ClassDB::bind_method(D_METHOD("get_shaded"), &SpineSprite3D::get_shaded);
+
+	// Sprite3D-style rendering controls
+	ClassDB::bind_method(D_METHOD("set_alpha_cut", "v"), &SpineSprite3D::set_alpha_cut);
+	ClassDB::bind_method(D_METHOD("get_alpha_cut"), &SpineSprite3D::get_alpha_cut);
+	BIND_ENUM_CONSTANT(ALPHA_CUT_DISABLED);
+	BIND_ENUM_CONSTANT(ALPHA_CUT_DISCARD);
+	BIND_ENUM_CONSTANT(ALPHA_CUT_OPAQUE_PREPASS);
+	BIND_ENUM_CONSTANT(ALPHA_CUT_HASH);
+	ClassDB::bind_method(D_METHOD("set_alpha_scissor_threshold", "v"), &SpineSprite3D::set_alpha_scissor_threshold);
+	ClassDB::bind_method(D_METHOD("get_alpha_scissor_threshold"), &SpineSprite3D::get_alpha_scissor_threshold);
+	ClassDB::bind_method(D_METHOD("set_depth_offset", "v"), &SpineSprite3D::set_depth_offset);
+	ClassDB::bind_method(D_METHOD("get_depth_offset"), &SpineSprite3D::get_depth_offset);
+	ClassDB::bind_method(D_METHOD("set_no_depth_test", "v"), &SpineSprite3D::set_no_depth_test);
+	ClassDB::bind_method(D_METHOD("get_no_depth_test"), &SpineSprite3D::get_no_depth_test);
+	ClassDB::bind_method(D_METHOD("set_double_sided", "v"), &SpineSprite3D::set_double_sided);
+	ClassDB::bind_method(D_METHOD("get_double_sided"), &SpineSprite3D::get_double_sided);
+	ClassDB::bind_method(D_METHOD("set_fixed_size", "v"), &SpineSprite3D::set_fixed_size);
+	ClassDB::bind_method(D_METHOD("get_fixed_size"), &SpineSprite3D::get_fixed_size);
+	ClassDB::bind_method(D_METHOD("set_render_priority", "v"), &SpineSprite3D::set_render_priority);
+	ClassDB::bind_method(D_METHOD("get_render_priority"), &SpineSprite3D::get_render_priority);
+	ClassDB::bind_method(D_METHOD("set_modulate", "v"), &SpineSprite3D::set_modulate);
+	ClassDB::bind_method(D_METHOD("get_modulate"), &SpineSprite3D::get_modulate);
 
 	ClassDB::bind_method(D_METHOD("set_normal_material", "material"), &SpineSprite3D::set_normal_material);
 	ClassDB::bind_method(D_METHOD("get_normal_material"), &SpineSprite3D::get_normal_material);
@@ -450,12 +549,22 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "time_scale"), "set_time_scale", "get_time_scale");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "pixel_size", PROPERTY_HINT_RANGE, "0.0001,1,0.0001"), "set_pixel_size", "get_pixel_size");
 	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "z_spacing", PROPERTY_HINT_RANGE, "0,1,0.0001"), "set_z_spacing", "get_z_spacing");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "depth_offset", PROPERTY_HINT_RANGE, "-0.1,0.1,0.0001"), "set_depth_offset", "get_depth_offset");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "get_flip_h");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "get_flip_v");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "billboard", PROPERTY_HINT_ENUM, "Disabled,Enabled,Y-Billboard"), "set_billboard", "get_billboard");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "texture_filter", PROPERTY_HINT_ENUM, "Nearest,Linear,Nearest Mipmap,Linear Mipmap"),
 				 "set_texture_filter", "get_texture_filter");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "shaded"), "set_shaded", "get_shaded");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "alpha_cut", PROPERTY_HINT_ENUM, "Disabled,Discard,Opaque Pre-Pass,Alpha Hash"), "set_alpha_cut",
+				 "get_alpha_cut");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "alpha_scissor_threshold", PROPERTY_HINT_RANGE, "0,1,0.01"), "set_alpha_scissor_threshold",
+				 "get_alpha_scissor_threshold");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "no_depth_test"), "set_no_depth_test", "get_no_depth_test");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "double_sided"), "set_double_sided", "get_double_sided");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fixed_size"), "set_fixed_size", "get_fixed_size");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "render_priority", PROPERTY_HINT_RANGE, "-128,127,1"), "set_render_priority", "get_render_priority");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "modulate"), "set_modulate", "get_modulate");
 	ADD_GROUP("Materials", "");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "normal_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_normal_material",
 				 "get_normal_material");
@@ -487,7 +596,9 @@ void SpineSprite3D::_bind_methods() {
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
 	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), texture_filter(TEXTURE_FILTER_LINEAR),
-	  shaded(false), preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
+	  shaded(false), alpha_cut(ALPHA_CUT_DISCARD), alpha_scissor_threshold(0.5f), depth_offset(0.0f), no_depth_test(false), double_sided(true),
+	  fixed_size(false), render_priority(0), modulate(Color(1, 1, 1, 1)), preview_skin("Default"), preview_animation("-- Empty --"),
+	  preview_frame(false), preview_time(0),
 	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
 	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)), debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)),
 	  debug_bones_thickness(5.0f), debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)), debug_meshes(false),
@@ -883,24 +994,33 @@ void SpineSprite3D::build_meshes() {
 			// albedo_tex), so such slots do not cast the auto alpha-cutout shadow.
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
-			// Build cache key: variant bits (incl. casts + texture_filter) in top byte, texture RID in lower 56 bits.
-			// max variant = 64 + 3*16 + 3*4+2+1 = 127, fits in the top byte. The cache key stays keyed on the
-			// ORIGINAL texture rid (not the 3D-safe copy), so it is stable across frames.
-			uint64_t variant_bits = (uint64_t) ((casts ? 64 : 0) + (int) texture_filter * 16 + (int) current_blend * 4 + (shaded ? 2 : 0) +
-												(current_pma ? 1 : 0));
+			// Build cache key: 10-bit shader variant key in the top bits, texture RID in the lower 54 bits.
+			// The variant key (pma|shaded|blend|filter|alpha_cut|no_depth_test|double_sided) matches the
+			// statics variant cache. The cache key stays keyed on the ORIGINAL texture rid (not the 3D-safe
+			// copy), so it is stable across frames.
+			uint64_t variant_bits = (uint64_t) SpineSprite3DStatics::variant_key(current_blend, shaded, current_pma, texture_filter, alpha_cut,
+																				 no_depth_test, double_sided);
 			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
-			uint64_t cache_key = (variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
+			uint64_t cache_key = (variant_bits << 54) | (tex_id & 0x003FFFFFFFFFFFFFull);
 
 			Ref<ShaderMaterial> mat;
 			if (material_cache.has(cache_key)) {
 				mat = material_cache[cache_key];
 			} else {
 				// Clone the shared shader variant into a fresh per-(variant,texture) material
-				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter, casts);
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter, casts, alpha_cut,
+																	   no_depth_test, double_sided);
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
 				mat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
 				mat->set_shader_parameter("billboard_mode", (int) billboard);
+				// Sprite3D-style uniform controls (set on every clone; harmless when not used by the variant).
+				mat->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+				mat->set_shader_parameter("fixed_size_enabled", fixed_size);
+				mat->set_shader_parameter("modulate_color", modulate);
+				mat->set_shader_parameter("layer_z_spacing", z_spacing);
+				mat->set_shader_parameter("depth_offset", depth_offset);
+				mat->set_render_priority(render_priority);
 				if (shaded) {
 					bool has_normal = current_ro->normal_map.is_valid();
 					bool has_specular = current_ro->specular_map.is_valid();
@@ -1185,7 +1305,12 @@ void SpineSprite3D::build_meshes() {
 			RS::get_singleton()->mesh_surface_update_vertex_region(mesh, s, 0, sc.vertex_buffer);
 			RS::get_singleton()->mesh_surface_update_attribute_region(mesh, s, 0, sc.attribute_buffer);
 		}
-		if (aabb_init) RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
+		if (aabb_init) {
+			RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
+			// Also set the instance AABB (same as Godot's SpriteBase3D::_draw) so the
+			// GeometryInstance3D reports a real bounding volume to culling / editor gizmos.
+			set_custom_aabb(final_aabb);
+		}
 		// Surface topology is unchanged on the fast path, but the cast_shadow setting (or world
 		// membership) may have toggled since last frame, so refresh the shadow instance here too.
 		update_shadow_instance();
@@ -1296,6 +1421,9 @@ void SpineSprite3D::build_meshes() {
 
 	if (aabb_init) {
 		RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
+		// Also set the instance AABB (same as Godot's SpriteBase3D::_draw) so the
+		// GeometryInstance3D reports a real bounding volume to culling / editor gizmos.
+		set_custom_aabb(final_aabb);
 	}
 	set_base(mesh);
 	// Re-point/refresh the separate shadows-only instance at the freshly (re)built mesh and its
@@ -1311,7 +1439,7 @@ void SpineSprite3D::build_meshes() {
 
 // ---------------------------------------------------------------------------
 // Shadow caster instance management. The display path never casts (its materials are
-// depth_draw_never/shadows_disabled). When this node casts AND it is inside a world, keep a
+// depth_draw_opaque/shadows_disabled). When this node casts AND it is inside a world, keep a
 // SEPARATE RS instance bound to the SAME mesh RID but rendering into shadow maps ONLY, with
 // per-surface alpha-cutout override materials so it casts a shaped shadow without any z-fight in
 // the visible pass. When not casting (or not in a world), detach the instance so it stops
@@ -1796,6 +1924,102 @@ void SpineSprite3D::set_shaded(bool v) {
 
 bool SpineSprite3D::get_shaded() {
 	return shaded;
+}
+
+void SpineSprite3D::set_alpha_cut(AlphaCutMode v) {
+	if (alpha_cut == v) return;
+	alpha_cut = v;
+	// alpha_cut is a SHADER dimension (changes render_mode + fragment scissor) and is part of the
+	// material cache key, so invalidate the per-instance clones and let build_meshes() rebuild.
+	material_cache.clear();
+	texture_3d_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+SpineSprite3D::AlphaCutMode SpineSprite3D::get_alpha_cut() {
+	return alpha_cut;
+}
+
+void SpineSprite3D::set_alpha_scissor_threshold(float v) {
+	alpha_scissor_threshold = v;
+	// Uniform-only: re-apply to existing clones (no shader recompile needed).
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+	}
+}
+
+float SpineSprite3D::get_alpha_scissor_threshold() {
+	return alpha_scissor_threshold;
+}
+
+void SpineSprite3D::set_depth_offset(float v) {
+	if (depth_offset == v) return;
+	depth_offset = v;
+	material_cache.clear();
+	texture_3d_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+void SpineSprite3D::set_no_depth_test(bool v) {
+	if (no_depth_test == v) return;
+	no_depth_test = v;
+	// SHADER dimension (appends depth_test_disabled to render_mode); part of the cache key.
+	material_cache.clear();
+	texture_3d_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+bool SpineSprite3D::get_no_depth_test() {
+	return no_depth_test;
+}
+
+void SpineSprite3D::set_double_sided(bool v) {
+	if (double_sided == v) return;
+	double_sided = v;
+	// SHADER dimension (cull_disabled vs cull_back); part of the cache key.
+	material_cache.clear();
+	texture_3d_cache.clear();
+	if (skeleton.is_valid()) build_meshes();
+}
+
+bool SpineSprite3D::get_double_sided() {
+	return double_sided;
+}
+
+void SpineSprite3D::set_fixed_size(bool v) {
+	fixed_size = v;
+	// Uniform-only (gated branch in the vertex shader): re-apply to existing clones.
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
+	}
+}
+
+bool SpineSprite3D::get_fixed_size() {
+	return fixed_size;
+}
+
+void SpineSprite3D::set_render_priority(int v) {
+	render_priority = v;
+	// Material::set_render_priority is a per-material property (not a shader recompile).
+	for (auto &entry : material_cache) {
+		entry.value->set_render_priority(render_priority);
+	}
+}
+
+int SpineSprite3D::get_render_priority() {
+	return render_priority;
+}
+
+void SpineSprite3D::set_modulate(const Color &v) {
+	modulate = v;
+	// Uniform-only: re-apply to existing clones.
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("modulate_color", modulate);
+	}
+}
+
+Color SpineSprite3D::get_modulate() {
+	return modulate;
 }
 
 void SpineSprite3D::set_normal_material(Ref<Material> v) {

@@ -92,6 +92,16 @@ public:
 		TEXTURE_FILTER_LINEAR_MIPMAP = 3,
 	};
 
+	// Mirrors Godot's SpriteBase3D::AlphaCutMode. Controls how the DISPLAY shader writes
+	// transparency vs. opaque depth so the sprite can interact with the depth buffer
+	// (fog, water, scene occlusion) like a Sprite3D. See build_shader_source().
+	enum AlphaCutMode {
+		ALPHA_CUT_DISABLED = 0,      // alpha blend, no opaque depth write
+		ALPHA_CUT_DISCARD = 1,       // scissor: discard below threshold, kept pixels write opaque depth (hard edges)
+		ALPHA_CUT_OPAQUE_PREPASS = 2,// depth_prepass_alpha: writes opaque depth, soft edges
+		ALPHA_CUT_HASH = 3,          // alpha-hash (TODO: true hash; currently == OPAQUE_PREPASS)
+	};
+
 protected:
 	Ref<SpineSkeletonDataResource> skeleton_data_res;
 	Ref<SpineSkeleton> skeleton;
@@ -146,6 +156,18 @@ protected:
 
 	// Task 6: shaded mode
 	bool shaded;
+
+	// Sprite3D-style rendering controls. The four shader-affecting flags (alpha_cut,
+	// no_depth_test, double_sided, and the shaded/filter/blend/pma already present) are
+	// threaded into the display material cache key; the rest are uniforms set per-clone.
+	AlphaCutMode alpha_cut;       // shader dimension (see build_shader_source)
+	float alpha_scissor_threshold;// uniform; only meaningful for ALPHA_CUT_DISCARD
+	float depth_offset;           // uniform: per-part view-independent clip-space depth step (0 = off)
+	bool no_depth_test;           // shader dimension: appends depth_test_disabled
+	bool double_sided;            // shader dimension: cull_disabled (true) vs cull_back (false); default true
+	bool fixed_size;              // uniform: keep constant screen size regardless of distance
+	int render_priority;          // applied via Material::set_render_priority on the clones
+	Color modulate;               // uniform: global tint multiplied into ALBEDO/ALPHA
 
 	// Task 8: per-blend-mode custom material overrides
 	Ref<Material> normal_material;
@@ -302,6 +324,26 @@ public:
 	void set_shaded(bool v);
 	bool get_shaded();
 
+	// Sprite3D-style rendering controls
+	void set_alpha_cut(AlphaCutMode v);
+	AlphaCutMode get_alpha_cut();
+	void set_alpha_scissor_threshold(float v);
+	float get_alpha_scissor_threshold();
+	void set_depth_offset(float v);
+	float get_depth_offset() const {
+		return depth_offset;
+	}
+	void set_no_depth_test(bool v);
+	bool get_no_depth_test();
+	void set_double_sided(bool v);
+	bool get_double_sided();
+	void set_fixed_size(bool v);
+	bool get_fixed_size();
+	void set_render_priority(int v);
+	int get_render_priority();
+	void set_modulate(const Color &v);
+	Color get_modulate();
+
 	// Task 8: per-blend-mode custom material overrides
 	void set_normal_material(Ref<Material> v);
 	Ref<Material> get_normal_material();
@@ -414,5 +456,6 @@ public:
 
 VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)
 VARIANT_ENUM_CAST(SpineSprite3D::TextureFilter)
+VARIANT_ENUM_CAST(SpineSprite3D::AlphaCutMode)
 
 #endif// _3D_DISABLED
