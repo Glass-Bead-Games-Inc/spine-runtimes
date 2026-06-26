@@ -166,8 +166,7 @@ protected:
 		spine_owner = nullptr;
 	}
 
-	SpineObjectWrapper()
-		: spine_owner(nullptr), spine_object(nullptr), spine_owner_id() {
+	SpineObjectWrapper() : spine_owner(nullptr), spine_object(nullptr), spine_owner_id() {
 	}
 
 	// Disconnect on destruction so a freed wrapper never leaves a dangling
