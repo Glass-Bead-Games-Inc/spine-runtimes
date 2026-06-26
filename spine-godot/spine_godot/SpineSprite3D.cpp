@@ -54,6 +54,7 @@
 #include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/mesh.hpp>
+#include <godot_cpp/classes/world3d.hpp>      // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
 #include <godot_cpp/classes/image.hpp>        // Fix #2: Texture2D::get_image() return type
 #include <godot_cpp/classes/image_texture.hpp>// Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
 #include <godot_cpp/variant/variant.hpp>
@@ -105,13 +106,14 @@ public:
 private:
 	// Build GLSL source for the requested variant.
 	// Generates all {Normal, Additive, Multiply} blend x {straight, pma} x {unshaded, shaded} variants.
-	// `casts`: when false the variant opts out of shadows entirely (shadows_disabled); when true it
-	// uses depth_prepass_alpha so the alpha-blended material casts a shaped (alpha-cutout) shadow
-	// honoring the inherited GeometryInstance3D cast_shadow setting.
+	// The DISPLAY material never writes depth and never casts (depth_draw_never, shadows_disabled): the
+	// flat parts layer purely by surface/draw order so they cannot z-fight at any view angle. Shadow
+	// casting is handled by a SEPARATE shadows-only RS instance (see build_meshes / build_shadow_shader_source),
+	// so `casts` no longer affects the display shader. It is still threaded through the material cache key
+	// to keep the variant arrays/keys structurally parallel to the shadow path.
 	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts) {
+		(void) casts;// display material is depth_draw_never/shadows_disabled regardless of cast setting
 		const char *filter_hint = texture_filter_hint(filter);
-		// Shadow render_mode token: cast a shaped alpha-cutout shadow when casting, otherwise opt out.
-		const char *shadow_rm = casts ? "depth_prepass_alpha" : "shadows_disabled";
 		// Blend mode -> render_mode token
 		String rm;
 		switch (blend) {
@@ -151,7 +153,7 @@ private:
 			String frag = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
 							  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_opaque, " + shadow_rm +
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, unshaded, depth_draw_never, shadows_disabled" +
 				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
@@ -172,7 +174,7 @@ private:
 			String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c; ALPHA = tex.a * COLOR.a;"
 									  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb; ALPHA = tex.a * COLOR.a;";
 
-			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, depth_draw_opaque, " + shadow_rm +
+			return String("shader_type spatial;\n") + "render_mode " + rm + ", cull_disabled, depth_draw_never, shadows_disabled" +
 				";\n"
 				"\n"
 				"uniform sampler2D albedo_tex : source_color, " +
@@ -204,6 +206,39 @@ private:
 		Ref<Shader> shader;
 		shader.instantiate();
 		shader->set_code(build_shader_source(blend, shaded, pma, filter, casts));
+
+		Ref<ShaderMaterial> mat;
+		mat.instantiate();
+		mat->set_shader(shader);
+		return mat;
+	}
+
+	// Build GLSL source for the SHADOW caster material. This material is only ever assigned as a
+	// surface override on the separate SHADOWS_ONLY RS instance, so it never contributes to the
+	// color pass. It is a minimal alpha-cutout: depth_prepass_alpha turns the per-pixel ALPHA into
+	// a shaped (silhouette) shadow. ALBEDO is irrelevant for a shadows-only instance.
+	// `pma` does not change the alpha computation (alpha is the texture alpha times vertex alpha in
+	// both straight and premultiplied atlases), but is kept as a key dimension to parallel the
+	// display material cache and remain robust if the alpha derivation ever diverges.
+	static String build_shadow_shader_source(SpineSprite3D::TextureFilter filter, bool pma) {
+		(void) pma;// alpha derivation is identical for straight and premultiplied atlases
+		const char *filter_hint = texture_filter_hint(filter);
+		return String("shader_type spatial;\n"
+					  "render_mode cull_disabled, unshaded, depth_prepass_alpha;\n"
+					  "\n"
+					  "uniform sampler2D albedo_tex : source_color, ") +
+			filter_hint +
+			";\n"
+			"\n"
+			"void fragment() {\n"
+			"    ALPHA = texture(albedo_tex, UV).a * COLOR.a;\n"
+			"}\n";
+	}
+
+	static Ref<ShaderMaterial> make_shadow_material(SpineSprite3D::TextureFilter filter, bool pma) {
+		Ref<Shader> shader;
+		shader.instantiate();
+		shader->set_code(build_shadow_shader_source(filter, pma));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -253,6 +288,10 @@ private:
 public:
 	// Cache key: casts * 64 + filter * 16 + blend * 4 + shaded * 2 + pma  (max index = 64 + 3*16 + 3*4+2+1 = 127)
 	Ref<ShaderMaterial> materials[128];
+	// Shadow caster BASE materials (shader only, no texture). Key: (int)filter * 2 + (pma ? 1 : 0), max index 7.
+	// These are cloned per-texture into SpineSprite3D::shadow_material_cache, exactly like the display
+	// base materials above are cloned into material_cache.
+	Ref<ShaderMaterial> shadow_materials[8];
 	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
 	Ref<Shader> lines_shader;
 
@@ -273,6 +312,15 @@ public:
 			materials[key] = make_material(blend, shaded, pma, filter, casts);
 		}
 		return materials[key];
+	}
+
+	// Cached BASE shadow material for (filter, pma). Cloned per-texture by the caller.
+	Ref<ShaderMaterial> get_shadow_material(SpineSprite3D::TextureFilter filter, bool pma) {
+		int key = (int) filter * 2 + (pma ? 1 : 0);// 0..7
+		if (!shadow_materials[key].is_valid()) {
+			shadow_materials[key] = make_shadow_material(filter, pma);
+		}
+		return shadow_materials[key];
 	}
 
 	static SpineSprite3DStatics &instance() {
@@ -452,6 +500,9 @@ SpineSprite3D::SpineSprite3D()
 	// it OFF so existing rendering is byte-identical until the user opts in via the inherited
 	// cast_shadow setting; build_meshes() reads get_cast_shadows_setting() to pick the variant.
 	set_cast_shadows_setting(SHADOW_CASTING_SETTING_OFF);
+	// Receive NOTIFICATION_TRANSFORM_CHANGED so the separate shadows-only RS instance can be kept
+	// in sync with the node's global transform (it is not parented to the node's own instance).
+	set_notify_transform(true);
 }
 
 SpineSprite3D::~SpineSprite3D() {
@@ -459,6 +510,15 @@ SpineSprite3D::~SpineSprite3D() {
 	// F1: clear the instance base before freeing the mesh RID so the
 	// GeometryInstance3D never references a freed RID.
 	set_base(RID());
+	// Free the separate shadows-only instance before the mesh it references.
+	if (shadow_instance.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->free_rid(shadow_instance);
+#else
+		RS::get_singleton()->free(shadow_instance);
+#endif
+		shadow_instance = RID();
+	}
 	if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
 		RS::get_singleton()->free_rid(mesh);
@@ -496,10 +556,22 @@ void SpineSprite3D::on_skeleton_data_changed() {
 		mesh = RID();
 	}
 	set_base(RID());
+	// Detach the shadows-only instance from the freed mesh (it persists and is re-pointed by the
+	// next build_meshes()); the spec keeps shadow_instance alive across skeleton-data changes.
+	if (shadow_instance.is_valid()) {
+		RS::get_singleton()->instance_set_base(shadow_instance, RID());
+		RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+	}
 	// Task 4: clear per-instance material cache; textures change with skeleton data
 	material_cache.clear();
 	// Fix #2: textures change with the skeleton data, so any cached 3D-safe copies are stale.
 	texture_3d_cache.clear();
+	// Shadow material clones are keyed on texture; textures change with skeleton data, so drop them.
+	shadow_material_cache.clear();
+	// Drop persisted per-surface shadow material RIDs too: the mesh is freed above, so the surface
+	// RIDs they refer to are stale and must not be reused against the next (re)built mesh.
+	shadow_surface_materials.clear();
+	shadow_surface_count = 0;
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
 
 	if (skeleton_data_res.is_valid()) {
@@ -557,6 +629,32 @@ void SpineSprite3D::_notification(int what) {
 			if (update_mode == SpineConstant::UpdateMode_Physics) update_skeleton(get_physics_process_delta_time());
 			break;
 		}
+		case NOTIFICATION_ENTER_WORLD: {
+			// Now safe to call get_world_3d(); record it so update_shadow_instance() may use the world.
+			inside_world = true;
+			// Re-attach/refresh the shadows-only instance against the (new) world's scenario. This also
+			// covers the user's case: build_meshes() may have already run (in _ready / editor-preview)
+			// BEFORE the node entered the world — at which point get_world_3d() could not be used, so the
+			// shadow caster was deferred. update_shadow_instance() uses the persisted shadow_surface_*
+			// state (not the build-local arrays) so it can finish the setup here, even though no further
+			// build_meshes() may run in Manual update mode.
+			update_shadow_instance();
+			break;
+		}
+		case NOTIFICATION_EXIT_WORLD: {
+			// No longer in a world: forbid any get_world_3d() access until ENTER_WORLD fires again.
+			inside_world = false;
+			// Detach from the scenario being torn down so the instance never dangles a freed scenario.
+			// (instance_set_scenario does NOT require the world, so this is safe here.)
+			if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+			break;
+		}
+		case NOTIFICATION_TRANSFORM_CHANGED:
+		case NOTIFICATION_LOCAL_TRANSFORM_CHANGED: {
+			// Keep the separate shadows-only instance aligned with the node's global transform.
+			if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
+			break;
+		}
 		default:
 			break;
 	}
@@ -602,7 +700,8 @@ struct SpineSprite3DLocalSurface {
 	Vector<int> indices;
 #endif
 	bool shaded = false;
-	RID material;// resolved material RID for this surface (RID() if none assigned)
+	RID material;      // resolved DISPLAY material RID for this surface (RID() if none assigned)
+	RID shadow_material;// resolved SHADOW caster material RID for this surface (RID() if none / custom material)
 };
 
 // Fix #2: avoid Godot's "texture used in 3D" automatic reimport, which re-imports the
@@ -656,6 +755,18 @@ void SpineSprite3D::build_meshes() {
 	// would otherwise be referenced by the GeometryInstance3D) and free the mesh.
 	if (!skeleton.is_valid() || !skeleton->get_spine_object()) {
 		set_base(RID());
+		// Detach the shadows-only instance from its now-stale base/scenario before the mesh is
+		// freed (the instance itself is reused and freed in the destructor). Drop its per-surface
+		// shadow material clones too, since the mesh surfaces are gone.
+		if (shadow_instance.is_valid()) {
+			RS::get_singleton()->instance_set_base(shadow_instance, RID());
+			RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+		}
+		shadow_material_cache.clear();
+		// Mesh is being freed below; drop the persisted per-surface shadow RIDs so they are not
+		// reused against a future mesh (parallel to clearing shadow_material_cache).
+		shadow_surface_materials.clear();
+		shadow_surface_count = 0;
 		if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
 			RS::get_singleton()->free_rid(mesh);
@@ -758,6 +869,7 @@ void SpineSprite3D::build_meshes() {
 		}
 
 		RID surface_material;
+		RID surface_shadow_material;// SHADOW caster override for this surface (auto-generated surfaces only)
 		if (custom_mat.is_valid()) {
 			// User-owned material: use as-is; do NOT set albedo_tex or maps on it.
 			// F13 NOTE: the spine mesh winding is reversed by the base Y-flip
@@ -767,6 +879,8 @@ void SpineSprite3D::build_meshes() {
 			// back-face culling will cull the visible faces and the slot will appear
 			// invisible. Custom materials MUST disable back-face culling (cull_disabled
 			// / no cull). We cannot safely mutate a user's material here.
+			// No auto shadow override is built for custom-material surfaces (we don't control their
+			// albedo_tex), so such slots do not cast the auto alpha-cutout shadow.
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: variant bits (incl. casts + texture_filter) in top byte, texture RID in lower 56 bits.
@@ -798,6 +912,26 @@ void SpineSprite3D::build_meshes() {
 				material_cache[cache_key] = mat;
 			}
 			surface_material = mat->get_rid();
+
+			// Shadow caster: clone a per-(texture,filter,pma) shadow material that cuts out by the
+			// SAME 3d-safe texture's alpha. Only needed when this node casts; assigned as a surface
+			// override on the separate SHADOWS_ONLY instance below. Keyed like the display cache but
+			// in its own map so it survives material_cache changes independently.
+			if (casts) {
+				uint64_t shadow_variant_bits = (uint64_t) ((int) texture_filter * 2 + (current_pma ? 1 : 0));
+				uint64_t shadow_cache_key = (shadow_variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
+				Ref<ShaderMaterial> smat;
+				if (shadow_material_cache.has(shadow_cache_key)) {
+					smat = shadow_material_cache[shadow_cache_key];
+				} else {
+					Ref<ShaderMaterial> base_shadow = statics.get_shadow_material(texture_filter, current_pma);
+					smat.instantiate();
+					smat->set_shader(base_shadow->get_shader());
+					smat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
+					shadow_material_cache[shadow_cache_key] = smat;
+				}
+				surface_shadow_material = smat->get_rid();
+			}
 		}
 
 		SpineSprite3DLocalSurface ls;
@@ -807,6 +941,7 @@ void SpineSprite3D::build_meshes() {
 		ls.indices = scratch_indices;
 		ls.shaded = shaded;
 		ls.material = surface_material;
+		ls.shadow_material = surface_shadow_material;
 		local_surfaces.push_back(ls);
 
 		// Reset scratch for next surface.
@@ -981,6 +1116,15 @@ void SpineSprite3D::build_meshes() {
 
 	const int surface_count = local_surfaces.size();
 
+	// Persist the per-surface shadow materials so update_shadow_instance() can be driven later from
+	// NOTIFICATION_ENTER_WORLD (outside build_meshes(), where local_surfaces is gone). One RID per
+	// mesh surface (RID() for custom-material/no-shadow surfaces). Mirror the build-local result here.
+	shadow_surface_count = surface_count;
+	shadow_surface_materials.resize(surface_count);
+	for (int s = 0; s < surface_count; s++) {
+		shadow_surface_materials.write[s] = local_surfaces[s].shadow_material;
+	}
+
 	// Fix #10: the debug overlay (build_debug_mesh) appends a PRIMITIVE_LINES surface
 	// to this same mesh AFTER build_meshes() returns; that surface is not region-updatable
 	// here. Whenever debug overlays are enabled this frame OR were last frame, take the
@@ -1042,6 +1186,9 @@ void SpineSprite3D::build_meshes() {
 			RS::get_singleton()->mesh_surface_update_attribute_region(mesh, s, 0, sc.attribute_buffer);
 		}
 		if (aabb_init) RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
+		// Surface topology is unchanged on the fast path, but the cast_shadow setting (or world
+		// membership) may have toggled since last frame, so refresh the shadow instance here too.
+		update_shadow_instance();
 		// Base already set last (slow) frame; nothing else to do. No debug surface on this path.
 		debug_active_last_frame = false;
 		return;
@@ -1151,10 +1298,80 @@ void SpineSprite3D::build_meshes() {
 		RS::get_singleton()->mesh_set_custom_aabb(mesh, final_aabb);
 	}
 	set_base(mesh);
+	// Re-point/refresh the separate shadows-only instance at the freshly (re)built mesh and its
+	// new surfaces. build_debug_mesh() appends extra surfaces AFTER this, but those are debug-only
+	// overlays that should not cast, and we never set shadow overrides on them, so the shadow
+	// instance correctly ignores them (they fall back to their depth_test_disabled debug material).
+	update_shadow_instance();
 	// build_debug_mesh() runs next and may append a PRIMITIVE_LINES surface to this mesh.
 	// Record this frame's debug state so the next frame forces a slow rebuild if debug
 	// was (or becomes) active, keeping surface_cache aligned with the renderable surfaces.
 	debug_active_last_frame = debug_active_this_frame;
+}
+
+// ---------------------------------------------------------------------------
+// Shadow caster instance management. The display path never casts (its materials are
+// depth_draw_never/shadows_disabled). When this node casts AND it is inside a world, keep a
+// SEPARATE RS instance bound to the SAME mesh RID but rendering into shadow maps ONLY, with
+// per-surface alpha-cutout override materials so it casts a shaped shadow without any z-fight in
+// the visible pass. When not casting (or not in a world), detach the instance so it stops
+// rendering (it is freed only in the destructor).
+//
+// CRITICAL (the bug this method fixes): Node3D::get_world_3d() PRINTS an error and returns an
+// invalid ref whenever the node is not inside the world, and is_inside_world() is not exposed in
+// godot-cpp (the extension build). So get_world_3d() is gated entirely behind the inside_world
+// flag — when false we never touch it (and simply detach the instance's scenario, which does not
+// need the world). This makes the method safe to call while the node is built but detached from
+// the tree (the user's _ready / editor-preview case).
+//
+// Operates on the PERSISTED shadow_surface_* state (not build-local arrays) so it can also be
+// driven from NOTIFICATION_ENTER_WORLD after build_meshes() already ran while detached. Called
+// from both build_meshes() paths and from NOTIFICATION_ENTER_WORLD.
+void SpineSprite3D::update_shadow_instance() {
+	const bool casts_now = get_cast_shadows_setting() != SHADOW_CASTING_SETTING_OFF;
+
+	// Never call get_world_3d() unless we are actually inside a world (see header note): doing so
+	// spams the engine error and returns an invalid ref. When detached, just detach the instance's
+	// scenario (no world access needed) and bail.
+	if (!inside_world) {
+		if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+		return;
+	}
+
+	Ref<World3D> world = get_world_3d();
+	RID scenario;
+	if (world.is_valid()) scenario = world->get_scenario();
+
+	if (casts_now && scenario.is_valid() && mesh.is_valid()) {
+		if (!shadow_instance.is_valid()) shadow_instance = RS::get_singleton()->instance_create();
+		RS::get_singleton()->instance_set_base(shadow_instance, mesh);
+		RS::get_singleton()->instance_set_scenario(shadow_instance, scenario);
+		// get_global_transform() does NOT require being in the world, so it is fine to call here.
+		RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
+		// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum
+		// parameter type differs by build: the module's RenderingServer takes RSE::ShadowCastingSetting
+		// (the enum lives in namespace RenderingServerEnums, aliased RSE), while godot-cpp takes
+		// RenderingServer::SHADOW_CASTING_SETTING_SHADOWS_ONLY (RS == RenderingServer).
+#ifdef SPINE_GODOT_EXTENSION
+		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, RS::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
+#else
+		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, RSE::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
+#endif
+		// Iterate the PERSISTED per-surface shadow materials (build_meshes filled these). When this
+		// runs from ENTER_WORLD before the first build_meshes(), shadow_surface_count is 0 and the
+		// loop is a no-op — base/scenario/transform are still set, and the next build_meshes() will
+		// populate the surfaces and call this again.
+		for (int s = 0; s < shadow_surface_count; s++) {
+			const RID &sm = shadow_surface_materials[s];
+			// RID() override (custom-material surfaces) clears any stale override so the
+			// surface falls back to the mesh's display material (which is shadows_disabled).
+			RS::get_singleton()->instance_set_surface_override_material(shadow_instance, s, sm);
+		}
+	} else if (shadow_instance.is_valid()) {
+		// Not casting (cast_shadow == Off) or no valid scenario/mesh: detach so it stops rendering.
+		// Do NOT free here; the instance is reused across rebuilds and freed in the destructor.
+		RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+	}
 }
 
 // ---------------------------------------------------------------------------

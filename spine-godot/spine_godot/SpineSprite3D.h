@@ -103,6 +103,33 @@ protected:
 
 	RID mesh;// owned RS mesh, created in Task 2
 
+	// Shadow casting is decoupled from display. The display path (set_base(mesh)) uses
+	// depth_draw_never/shadows_disabled materials so the flat parts layer by draw order and
+	// never z-fight; it casts nothing. This SEPARATE RS instance shares the SAME mesh RID but
+	// renders into shadow maps ONLY (SHADOW_CASTING_SETTING_SHADOWS_ONLY) with per-surface
+	// alpha-cutout (depth_prepass_alpha) override materials, so it still casts a shaped shadow.
+	// Created lazily (only when cast_shadow != Off and the node is in a world), freed in the
+	// destructor; its scenario is detached on EXIT_WORLD and re-set on ENTER_WORLD / build_meshes.
+	RID shadow_instance;
+	// Per-(texture,filter,pma) shadow material clones, parallel to material_cache. Keeps the
+	// ShaderMaterial Refs alive so the RIDs handed to instance_set_surface_override_material stay valid.
+	HashMap<uint64_t, Ref<ShaderMaterial>> shadow_material_cache;
+
+	// Tracks whether the node is currently inside a World3D. Set from NOTIFICATION_ENTER_WORLD /
+	// NOTIFICATION_EXIT_WORLD. CRITICAL: Node3D::get_world_3d() prints an error and returns an
+	// invalid ref whenever the node is NOT inside the world, and is_inside_world() is not exposed
+	// in godot-cpp (the extension build). So get_world_3d() must NEVER be called unless this flag is
+	// true; update_shadow_instance() gates its entire get_world_3d() access behind it.
+	bool inside_world = false;
+	// Persisted shadow-caster surface state so update_shadow_instance() can run OUTSIDE build_meshes()
+	// (specifically from NOTIFICATION_ENTER_WORLD, where the build-local surface_count/local_surfaces
+	// arrays are unavailable). Populated by build_meshes() alongside the per-surface shadow materials;
+	// cleared wherever shadow_material_cache is cleared so stale surface RIDs are never reused against
+	// a freshly rebuilt mesh. shadow_surface_materials holds one shadow-material RID per mesh surface
+	// (RID() for custom-material/no-shadow surfaces).
+	int shadow_surface_count = 0;
+	Vector<RID> shadow_surface_materials;
+
 	// Task 2: rendering parameters (exposed as properties in Task 3)
 	float pixel_size;
 	float z_spacing;
@@ -216,6 +243,12 @@ protected:
 
 	void build_meshes();
 	void build_debug_mesh();// Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
+
+	// Shadow caster instance management. Re-points/refreshes (or detaches) the SEPARATE shadows-only
+	// RS instance from the persisted shadow_surface_* state. Safe to call whether or not the node is
+	// inside a world: it accesses get_world_3d() ONLY when inside_world is true (see the flag above).
+	// Called from both build_meshes() paths and from NOTIFICATION_ENTER_WORLD.
+	void update_shadow_instance();
 
 	// Fix #2: return a texture safe to use in a 3D draw without triggering Godot's
 	// "texture used in 3D" auto-reimport (which adds mipmaps + VRAM compression and
