@@ -700,7 +700,7 @@ struct SpineSprite3DLocalSurface {
 	Vector<int> indices;
 #endif
 	bool shaded = false;
-	RID material;      // resolved DISPLAY material RID for this surface (RID() if none assigned)
+	RID material;       // resolved DISPLAY material RID for this surface (RID() if none assigned)
 	RID shadow_material;// resolved SHADOW caster material RID for this surface (RID() if none / custom material)
 };
 
