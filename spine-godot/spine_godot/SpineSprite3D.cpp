@@ -1348,15 +1348,11 @@ void SpineSprite3D::update_shadow_instance() {
 		RS::get_singleton()->instance_set_scenario(shadow_instance, scenario);
 		// get_global_transform() does NOT require being in the world, so it is fine to call here.
 		RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
-		// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum
-		// parameter type differs by build: the module's RenderingServer takes RSE::ShadowCastingSetting
-		// (the enum lives in namespace RenderingServerEnums, aliased RSE), while godot-cpp takes
-		// RenderingServer::SHADOW_CASTING_SETTING_SHADOWS_ONLY (RS == RenderingServer).
-#ifdef SPINE_GODOT_EXTENSION
-		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, RS::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
-#else
-		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, RSE::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
-#endif
+		// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum's home
+		// differs by build/version: Godot 4.7's module split it into RenderingServerEnums, while Godot
+		// <= 4.6 and the GDExtension keep it on RenderingServer. SPINE_RS_ENUM resolves to the right one
+		// (RenderingServerEnums on 4.7 module, RS otherwise) -- a bare RSE:: breaks the 4.6 module build.
+		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, SPINE_RS_ENUM::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
 		// Iterate the PERSISTED per-surface shadow materials (build_meshes filled these). When this
 		// runs from ENTER_WORLD before the first build_meshes(), shadow_surface_count is 0 and the
 		// loop is a no-op — base/scenario/transform are still set, and the next build_meshes() will
