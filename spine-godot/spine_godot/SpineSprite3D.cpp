@@ -110,12 +110,10 @@ private:
 	// depth keeps the sprite in the camera depth buffer so screen-space depth effects (fog, water, SSAO,
 	// DOF) and scene occlusion work correctly. With coplanar parts (z_spacing 0 / small) the opaque pixels
 	// of overlapping parts share the same depth, so they layer by draw order without z-fighting. Shadow
-	// casting is handled by a SEPARATE shadows-only RS instance (see build_meshes / build_shadow_shader_source),
-	// so `casts` no longer affects the display shader; it is still threaded through the material cache key
-	// to keep the variant arrays/keys structurally parallel to the shadow path.
-	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+	// casting is handled by a SEPARATE shadows-only RS instance (see build_meshes / build_shadow_shader_source);
+	// the cast setting does NOT affect the display shader, so it is not a parameter here.
+	static String build_shader_source(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter,
 									  SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
-		(void) casts;// display is shadows_disabled regardless of cast setting (shadows come from the separate caster)
 		const char *filter_hint = texture_filter_hint(filter);
 		// Blend mode -> render_mode token
 		String rm;
@@ -138,11 +136,17 @@ private:
 		//  - DISABLED:      depth_draw_opaque   (alpha blend, no opaque depth from the alpha pixels)
 		//  - DISCARD:       depth_draw_opaque   + scissor discard (kept pixels write opaque depth -> hard cut)
 		//  - OPAQUE_PREPASS:depth_prepass_alpha (alpha pre-pass writes opaque depth -> soft edges cut fog/water)
-		//  - HASH:          depth_prepass_alpha (TODO true alpha-hash; same as OPAQUE_PREPASS for now)
-		const char *depth_mode = (alpha_cut == SpineSprite3D::ALPHA_CUT_OPAQUE_PREPASS || alpha_cut == SpineSprite3D::ALPHA_CUT_HASH)
-			? "depth_prepass_alpha"
-			: "depth_draw_opaque";
+		//  - HASH:          depth_draw_opaque   + ALPHA_HASH_SCALE (hashed transparency in the opaque pass,
+		//                   cuts fog/water like Discard but with a stochastic dither instead of a hard edge)
+		const char *depth_mode = (alpha_cut == SpineSprite3D::ALPHA_CUT_OPAQUE_PREPASS) ? "depth_prepass_alpha" : "depth_draw_opaque";
 		const char *cull_mode = double_sided ? "cull_disabled" : "cull_back";
+
+		// HASH mode: writing the engine built-in ALPHA_HASH_SCALE sets the shader's uses_alpha_clip flag
+		// (like ALPHA_SCISSOR_THRESHOLD does for DISCARD), which makes the engine render the material in the
+		// OPAQUE pass and populate the opaque depth buffer (so it cuts fog/water/depth effects), but with
+		// hashed/dithered transparency rather than a hard scissor edge. This differs from OPAQUE_PREPASS
+		// (soft-edged alpha pre-pass) and from DISCARD (hard cut at the scissor threshold).
+		const bool alpha_hash = (alpha_cut == SpineSprite3D::ALPHA_CUT_HASH);
 
 		// shadows_disabled coexists with depth_prepass_alpha: the pre-pass is a camera-depth
 		// pass, shadows_disabled only suppresses the light/shadow pass. The separate shadow
@@ -182,17 +186,26 @@ private:
 						   "            MODELVIEW_MATRIX[2] *= sc;\n"
 						   "        }\n"
 						   "    }\n"
+						   // The mesh bakes the RAW draw-order index into VERTEX.z as -(float)i (independent of
+						   // z_spacing). Capture it BEFORE applying z_spacing so depth_offset works at ANY z_spacing
+						   // (including the default 0). Then convert the raw index into the world-space layer offset by
+						   // scaling VERTEX.z by layer_z_spacing — this is what places coplanar parts along local +Z when
+						   // z_spacing > 0, and collapses them onto z=0 when z_spacing == 0.
+						   "    float _draw_index = VERTEX.z; // signed draw-order index -i (z stores -i raw)\n"
+						   "    VERTEX.z *= layer_z_spacing;  // apply world-space layer spacing (no-op at z_spacing 0)\n"
 						   // Per-part view-independent depth offset, applied in VIEW space (linear meters).
-						   // VERTEX.z == -i * z_spacing, so VERTEX.z / layer_z_spacing recovers the draw-order index -i.
 						   // We push each part toward the camera by (draw_order * depth_offset) METERS along the view
 						   // axis BEFORE projection. Two benefits: (1) along the view axis it never collapses at grazing
 						   // angles the way world-space z_spacing does, and (2) being in linear meters it is NOT amplified
 						   // by the near plane the way a clip-space/NDC offset is (a small near stretches NDC enormously,
 						   // turning a tiny NDC step into meters of real depth). depth_offset is meters-per-draw-order.
 						   // Only overrides POSITION when enabled, so default behavior is unchanged.
-						   "    if (layer_z_spacing > 0.0 && depth_offset != 0.0) {\n"
+						   // NOTE: writing POSITION here overrides the engine's projection for this path. Under TAA or
+						   // XR multiview this forgoes the engine's per-frame jitter / per-eye projection matrix (known
+						   // caveat). It is kept because it is the validated working approach for the depth offset.
+						   "    if (depth_offset != 0.0) {\n"
 						   "        vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);\n"
-						   "        _vpos.z -= (VERTEX.z / layer_z_spacing) * depth_offset;\n"
+						   "        _vpos.z -= _draw_index * depth_offset;\n"
 						   "        POSITION = PROJECTION_MATRIX * _vpos;\n"
 						   "    }\n"
 						   "}\n";
@@ -208,10 +221,16 @@ private:
 		// Fragment alpha/albedo: compute alpha into `a`, apply scissor if needed, then modulate.
 		String albedo_alpha = pma ? "vec4 tex = texture(albedo_tex, UV); vec3 c = tex.rgb * COLOR.rgb; ALBEDO = c;"
 								  : "vec4 tex = texture(albedo_tex, UV); ALBEDO = tex.rgb * COLOR.rgb;";
+		// Modulate. For the STRAIGHT (non-pma) path ALBEDO is plain color, so RGB scales by modulate.rgb
+		// and ALPHA by modulate.a independently. For the PMA path ALBEDO is already premultiplied
+		// (ALBEDO == color * ALPHA), so to keep that invariant after fading via modulate.a we MUST also
+		// scale ALBEDO by modulate_color.a (ALBEDO *= modulate.rgb * modulate.a), matching ALPHA *= modulate.a.
+		// Omitting the .a factor on ALBEDO would leave it brighter than its alpha and produce dark/edge
+		// fringing as a PMA sprite fades. Spine atlases are PMA by default, so this is the common path.
 		String alpha_calc = "    float a = tex.a * COLOR.a;\n"
-							"    ALPHA = a;\n"
-							"    ALBEDO *= modulate_color.rgb;\n"
-							"    ALPHA *= modulate_color.a;\n";
+							"    ALPHA = a;\n";
+		alpha_calc += pma ? "    ALBEDO *= modulate_color.rgb * modulate_color.a;\n" : "    ALBEDO *= modulate_color.rgb;\n";
+		alpha_calc += "    ALPHA *= modulate_color.a;\n";
 		// DISCARD mode: assign the engine BUILT-IN ALPHA_SCISSOR_THRESHOLD instead of doing a manual
 		// `if (a < t) discard;`. Only writing this built-in sets the shader's uses_alpha_clip flag,
 		// which makes the engine render the material in the OPAQUE pass and populate the opaque depth
@@ -220,6 +239,9 @@ private:
 		// alpha-blend (transparent) pass -> no opaque depth -> no cut. The engine performs the discard
 		// itself from this threshold (matches BaseMaterial3D, material.cpp:1813).
 		if (scissor) alpha_calc += "    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n";
+		// HASH: assign the engine built-in ALPHA_HASH_SCALE to enable hashed (dithered) alpha clipping in
+		// the opaque pass. Writing it is what flips uses_alpha_clip, so the material lands opaque/hashed.
+		if (alpha_hash) alpha_calc += "    ALPHA_HASH_SCALE = 1.0;\n";
 
 		if (!shaded) {
 			// Unshaded variant: flat rendering, no lighting, no shadow participation.
@@ -261,11 +283,11 @@ private:
 		}
 	}
 
-	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+	static Ref<ShaderMaterial> make_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter,
 											 SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
 		Ref<Shader> shader;
 		shader.instantiate();
-		shader->set_code(build_shader_source(blend, shaded, pma, filter, casts, alpha_cut, no_depth_test, double_sided));
+		shader->set_code(build_shader_source(blend, shaded, pma, filter, alpha_cut, no_depth_test, double_sided));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -277,11 +299,21 @@ private:
 	// surface override on the separate SHADOWS_ONLY RS instance, so it never contributes to the
 	// color pass. It is a minimal alpha-cutout: depth_prepass_alpha turns the per-pixel ALPHA into
 	// a shaped (silhouette) shadow. ALBEDO is irrelevant for a shadows-only instance.
-	// `pma` does not change the alpha computation (alpha is the texture alpha times vertex alpha in
-	// both straight and premultiplied atlases), but is kept as a key dimension to parallel the
-	// display material cache and remain robust if the alpha derivation ever diverges.
-	static String build_shadow_shader_source(SpineSprite3D::TextureFilter filter, bool pma) {
-		(void) pma;// alpha derivation is identical for straight and premultiplied atlases
+	// The shadow shader depends ONLY on the texture filter: the cutout alpha is the texture alpha
+	// times vertex/modulate alpha, which is identical for straight and premultiplied atlases, so
+	// `pma` is NOT a parameter (keying on pma would just duplicate identical shaders).
+	//
+	// The caster MUST share the SAME vertex() transform as the display shader: billboard_mode (1/2),
+	// fixed_size, the raw-draw-index z_spacing scaling, and the per-part depth_offset view-space push.
+	// Otherwise a billboarded sprite would cast a fixed-orientation silhouette that collapses edge-on
+	// (the rendered card faces the camera but its shadow geometry would not). The vertex code below is
+	// duplicated verbatim from build_shader_source's vertex_fn so the shadow tracks the rendered card.
+	//
+	// The fragment alpha MUST also match the display cutout: multiply by modulate_color.a (so a sprite
+	// faded via modulate still fades its shadow) and assign ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold
+	// (so a re-cut via a lowered scissor matches the rendered silhouette). depth_prepass_alpha + the
+	// scissor threshold give a hard cutout identical to the display's DISCARD path.
+	static String build_shadow_shader_source(SpineSprite3D::TextureFilter filter) {
 		const char *filter_hint = texture_filter_hint(filter);
 		return String("shader_type spatial;\n"
 					  "render_mode cull_disabled, unshaded, depth_prepass_alpha;\n"
@@ -289,16 +321,60 @@ private:
 					  "uniform sampler2D albedo_tex : source_color, ") +
 			filter_hint +
 			";\n"
+			"uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
+			"uniform bool fixed_size_enabled = false;\n"
+			"uniform vec4 modulate_color = vec4(1.0);\n"
+			"uniform float layer_z_spacing = 0.0;\n"
+			"uniform float depth_offset = 0.0;\n"
+			"uniform float alpha_scissor_threshold = 0.5;\n"
+			"\n"
+			"void vertex() {\n"
+			"    if (billboard_mode == 1) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2],\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    } else if (billboard_mode == 2) {\n"
+			"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(\n"
+			"            vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0),\n"
+			"            vec4(0.0,1.0,0.0,0.0),\n"
+			"            vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0),\n"
+			"            MODEL_MATRIX[3]);\n"
+			"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+			"    }\n"
+			"    if (fixed_size_enabled) {\n"
+			"        if (PROJECTION_MATRIX[3][3] != 0.0) {\n"
+			"            float h = abs(1.0 / (2.0 * PROJECTION_MATRIX[1][1]));\n"
+			"            float sc = (h * 2.0);\n"
+			"            MODELVIEW_MATRIX[0] *= sc;\n"
+			"            MODELVIEW_MATRIX[1] *= sc;\n"
+			"            MODELVIEW_MATRIX[2] *= sc;\n"
+			"        } else {\n"
+			"            float sc = -(MODELVIEW_MATRIX)[3].z;\n"
+			"            MODELVIEW_MATRIX[0] *= sc;\n"
+			"            MODELVIEW_MATRIX[1] *= sc;\n"
+			"            MODELVIEW_MATRIX[2] *= sc;\n"
+			"        }\n"
+			"    }\n"
+			"    float _draw_index = VERTEX.z; // signed draw-order index -i (z stores -i raw)\n"
+			"    VERTEX.z *= layer_z_spacing;  // apply world-space layer spacing (no-op at z_spacing 0)\n"
+			"    if (depth_offset != 0.0) {\n"
+			"        vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);\n"
+			"        _vpos.z -= _draw_index * depth_offset;\n"
+			"        POSITION = PROJECTION_MATRIX * _vpos;\n"
+			"    }\n"
+			"}\n"
 			"\n"
 			"void fragment() {\n"
-			"    ALPHA = texture(albedo_tex, UV).a * COLOR.a;\n"
+			"    ALPHA = texture(albedo_tex, UV).a * COLOR.a * modulate_color.a;\n"
+			"    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n"
 			"}\n";
 	}
 
-	static Ref<ShaderMaterial> make_shadow_material(SpineSprite3D::TextureFilter filter, bool pma) {
+	static Ref<ShaderMaterial> make_shadow_material(SpineSprite3D::TextureFilter filter) {
 		Ref<Shader> shader;
 		shader.instantiate();
-		shader->set_code(build_shadow_shader_source(filter, pma));
+		shader->set_code(build_shadow_shader_source(filter));
 
 		Ref<ShaderMaterial> mat;
 		mat.instantiate();
@@ -310,9 +386,13 @@ private:
 	// Unshaded, vertex_color_use_as_albedo, no depth test so lines always show through.
 	// Includes the same billboard vertex() transform as the main render shader so that
 	// on billboarded sprites the debug lines track the rendered geometry.
+	// shadows_disabled: the debug PRIMITIVE_LINES surface lives on the same mesh that is bound to the
+	// SHADOWS_ONLY shadow instance, and that surface has no shadow override material, so without this
+	// the debug lines would themselves cast (garbage) shadows. Disabling shadows on the lines material
+	// makes it never cast even when rendered through the shadow instance.
 	static String build_lines_shader_source() {
 		return String("shader_type spatial;\n"
-					  "render_mode unshaded, cull_disabled, depth_test_disabled;\n"
+					  "render_mode unshaded, cull_disabled, depth_test_disabled, shadows_disabled;\n"
 					  "\n"
 					  "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
 					  "\n"
@@ -364,10 +444,11 @@ public:
 		return key;
 	}
 	HashMap<uint32_t, Ref<ShaderMaterial>> materials;
-	// Shadow caster BASE materials (shader only, no texture). Key: (int)filter * 2 + (pma ? 1 : 0), max index 7.
+	// Shadow caster BASE materials (shader only, no texture). Keyed on filter ONLY (the shadow shader is
+	// independent of pma, blend, shaded, etc.), so there is exactly one per TextureFilter value (max 4).
 	// These are cloned per-texture into SpineSprite3D::shadow_material_cache, exactly like the display
 	// base materials above are cloned into material_cache.
-	Ref<ShaderMaterial> shadow_materials[8];
+	Ref<ShaderMaterial> shadow_materials[4];
 	// Task 11: shared lines shader (billboard-aware); each sprite clones its own material.
 	Ref<Shader> lines_shader;
 
@@ -382,20 +463,20 @@ public:
 		return lines_shader;
 	}
 
-	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter, bool casts,
+	Ref<ShaderMaterial> get_material(spine::BlendMode blend, bool shaded, bool pma, SpineSprite3D::TextureFilter filter,
 									 SpineSprite3D::AlphaCutMode alpha_cut, bool no_depth_test, bool double_sided) {
 		uint32_t key = variant_key(blend, shaded, pma, filter, alpha_cut, no_depth_test, double_sided);
 		if (!materials.has(key) || !materials[key].is_valid()) {
-			materials[key] = make_material(blend, shaded, pma, filter, casts, alpha_cut, no_depth_test, double_sided);
+			materials[key] = make_material(blend, shaded, pma, filter, alpha_cut, no_depth_test, double_sided);
 		}
 		return materials[key];
 	}
 
-	// Cached BASE shadow material for (filter, pma). Cloned per-texture by the caller.
-	Ref<ShaderMaterial> get_shadow_material(SpineSprite3D::TextureFilter filter, bool pma) {
-		int key = (int) filter * 2 + (pma ? 1 : 0);// 0..7
+	// Cached BASE shadow material for `filter`. Cloned per-texture by the caller.
+	Ref<ShaderMaterial> get_shadow_material(SpineSprite3D::TextureFilter filter) {
+		int key = (int) filter & 0x3;// 0..3
 		if (!shadow_materials[key].is_valid()) {
-			shadow_materials[key] = make_shadow_material(filter, pma);
+			shadow_materials[key] = make_shadow_material(filter);
 		}
 		return shadow_materials[key];
 	}
@@ -606,10 +687,14 @@ SpineSprite3D::SpineSprite3D()
 	  debug_paths_color(Color::hex(0xff7f0077)), debug_clipping(false), debug_clipping_color(Color(0.8f, 0, 0, 0.8f)),
 	  debug_active_last_frame(false) {
 	scratch_world_verts.ensureCapacity(1200);
-	// Shadow casting: GeometryInstance3D defaults cast_shadow to ON, which would make every
-	// SpineSprite3D suddenly cast and change its depth behavior (depth_prepass_alpha). Default
-	// it OFF so existing rendering is byte-identical until the user opts in via the inherited
-	// cast_shadow setting; build_meshes() reads get_cast_shadows_setting() to pick the variant.
+	// Shadow casting: GeometryInstance3D defaults cast_shadow to ON, which would spin up the
+	// separate shadows-only caster instance on every SpineSprite3D. Default it OFF so a fresh node
+	// casts nothing until the user opts in via the inherited cast_shadow setting; build_meshes()
+	// reads get_cast_shadows_setting() to decide whether to build the per-surface shadow overrides.
+	// NOTE: this does NOT make rendering "byte-identical" to a plain alpha-blend node — the DISPLAY
+	// default alpha_cut is Discard (ALPHA_CUT_DISCARD), an alpha-scissor that writes opaque depth in
+	// the opaque pass and so cuts fog/water/depth effects at hard edges. Set alpha_cut = Disabled to
+	// restore plain alpha-blend (no opaque depth write). Cast state is independent of this.
 	set_cast_shadows_setting(SHADOW_CASTING_SETTING_OFF);
 	// Receive NOTIFICATION_TRANSFORM_CHANGED so the separate shadows-only RS instance can be kept
 	// in sync with the node's global transform (it is not parented to the node's own instance).
@@ -683,6 +768,13 @@ void SpineSprite3D::on_skeleton_data_changed() {
 	// RIDs they refer to are stale and must not be reused against the next (re)built mesh.
 	shadow_surface_materials.clear();
 	shadow_surface_count = 0;
+	// Fix (shadow #5): the mesh was freed and the instance detached out-of-band, so reset the cached
+	// applied-state and bump the generation; the next build_meshes()/update_shadow_instance() then does
+	// a full re-bind + override re-push instead of skipping on stale cached values.
+	shadow_instance_attached = false;
+	shadow_applied_mesh = RID();
+	shadow_applied_scenario = RID();
+	shadow_surface_generation++;
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
 
 	if (skeleton_data_res.is_valid()) {
@@ -758,6 +850,10 @@ void SpineSprite3D::_notification(int what) {
 			// Detach from the scenario being torn down so the instance never dangles a freed scenario.
 			// (instance_set_scenario does NOT require the world, so this is safe here.)
 			if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+			// Fix (shadow #5): reflect the out-of-band detach in the cached state so the next
+			// ENTER_WORLD's update_shadow_instance() does a full re-attach (it compares against this).
+			shadow_instance_attached = false;
+			shadow_applied_scenario = RID();
 			break;
 		}
 		case NOTIFICATION_TRANSFORM_CHANGED:
@@ -878,6 +974,13 @@ void SpineSprite3D::build_meshes() {
 		// reused against a future mesh (parallel to clearing shadow_material_cache).
 		shadow_surface_materials.clear();
 		shadow_surface_count = 0;
+		// Fix (shadow #5): we detached the instance and are freeing the mesh out-of-band here, so reset
+		// the cached applied-state. Otherwise a future build would see a stale shadow_applied_mesh/
+		// scenario and could skip the re-bind. A generation bump forces the override loop to re-run too.
+		shadow_instance_attached = false;
+		shadow_applied_mesh = RID();
+		shadow_applied_scenario = RID();
+		shadow_surface_generation++;
 		if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
 			RS::get_singleton()->free_rid(mesh);
@@ -896,6 +999,8 @@ void SpineSprite3D::build_meshes() {
 	// Shadow casting: honor the inherited GeometryInstance3D cast_shadow setting. When any casting
 	// mode is selected, the generated shader uses depth_prepass_alpha to cast a shaped (alpha-cutout)
 	// shadow; OFF keeps shadows_disabled. Computed once here and threaded into the material/cache keys.
+	// cast_shadow changes are picked up on the next build_meshes() (every frame for animating
+	// skeletons); a fully static / Manual-update skeleton may need a refresh to start/stop casting.
 	const bool casts = get_cast_shadows_setting() != SHADOW_CASTING_SETTING_OFF;
 
 	AABB aabb;
@@ -994,22 +1099,38 @@ void SpineSprite3D::build_meshes() {
 			// albedo_tex), so such slots do not cast the auto alpha-cutout shadow.
 			surface_material = custom_mat->get_rid();
 		} else if (current_ro && current_ro->texture.is_valid()) {
-			// Build cache key: 10-bit shader variant key in the top bits, texture RID in the lower 54 bits.
-			// The variant key (pma|shaded|blend|filter|alpha_cut|no_depth_test|double_sided) matches the
-			// statics variant cache. The cache key stays keyed on the ORIGINAL texture rid (not the 3D-safe
-			// copy), so it is stable across frames.
+			// Build cache key: 10-bit shader variant key in the top bits, texture identity in the lower
+			// 54 bits. The variant key (pma|shaded|blend|filter|alpha_cut|no_depth_test|double_sided)
+			// matches the statics variant cache. The key stays keyed on the ORIGINAL texture rid (not the
+			// 3D-safe copy), so it is stable across frames.
+			//
+			// Fix #4: the shaded variant also binds normal_tex/specular_tex (set only on a cache MISS), so
+			// the key MUST include the normal/specular map identity — otherwise two shaded surfaces sharing
+			// one albedo page but using DIFFERENT normal/specular maps collide and the second silently
+			// reuses the first's maps. Hash-combine all three rids into the lower 54 bits (the normal/
+			// specular maps only exist on the shaded path, so unshaded surfaces are unaffected and don't
+			// fragment the cache). The variant bits stay in the top 10 bits and never collide with this.
 			uint64_t variant_bits = (uint64_t) SpineSprite3DStatics::variant_key(current_blend, shaded, current_pma, texture_filter, alpha_cut,
 																				 no_depth_test, double_sided);
 			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
-			uint64_t cache_key = (variant_bits << 54) | (tex_id & 0x003FFFFFFFFFFFFFull);
+			uint64_t tex_identity = tex_id;
+			if (shaded) {
+				// Boost-style hash_combine so distinct (albedo, normal, specular) triples map to distinct
+				// lower-54-bit values. Invalid maps contribute their 0 rid id (a stable, distinct slot).
+				uint64_t normal_id = current_ro->normal_map.is_valid() ? (uint64_t) current_ro->normal_map->get_rid().get_id() : 0ull;
+				uint64_t specular_id = current_ro->specular_map.is_valid() ? (uint64_t) current_ro->specular_map->get_rid().get_id() : 0ull;
+				tex_identity ^= normal_id + 0x9E3779B97F4A7C15ull + (tex_identity << 6) + (tex_identity >> 2);
+				tex_identity ^= specular_id + 0x9E3779B97F4A7C15ull + (tex_identity << 6) + (tex_identity >> 2);
+			}
+			uint64_t cache_key = (variant_bits << 54) | (tex_identity & 0x003FFFFFFFFFFFFFull);
 
 			Ref<ShaderMaterial> mat;
 			if (material_cache.has(cache_key)) {
 				mat = material_cache[cache_key];
 			} else {
 				// Clone the shared shader variant into a fresh per-(variant,texture) material
-				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter, casts, alpha_cut,
-																	   no_depth_test, double_sided);
+				Ref<ShaderMaterial> variant_mat = statics.get_material(current_blend, shaded, current_pma, texture_filter, alpha_cut, no_depth_test,
+																	   double_sided);
 				mat.instantiate();
 				mat->set_shader(variant_mat->get_shader());
 				mat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
@@ -1033,21 +1154,33 @@ void SpineSprite3D::build_meshes() {
 			}
 			surface_material = mat->get_rid();
 
-			// Shadow caster: clone a per-(texture,filter,pma) shadow material that cuts out by the
+			// Shadow caster: clone a per-(texture,filter) shadow material that cuts out by the
 			// SAME 3d-safe texture's alpha. Only needed when this node casts; assigned as a surface
-			// override on the separate SHADOWS_ONLY instance below. Keyed like the display cache but
-			// in its own map so it survives material_cache changes independently.
+			// override on the separate SHADOWS_ONLY instance below. Keyed on (filter, texture) only —
+			// the shadow shader is pma-independent, so pma is NOT part of the key (keying on it would
+			// double the cache with identical clones). Kept in its own map so it survives
+			// material_cache changes independently.
 			if (casts) {
-				uint64_t shadow_variant_bits = (uint64_t) ((int) texture_filter * 2 + (current_pma ? 1 : 0));
+				uint64_t shadow_variant_bits = (uint64_t) ((int) texture_filter & 0x3);
 				uint64_t shadow_cache_key = (shadow_variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
 				Ref<ShaderMaterial> smat;
 				if (shadow_material_cache.has(shadow_cache_key)) {
 					smat = shadow_material_cache[shadow_cache_key];
 				} else {
-					Ref<ShaderMaterial> base_shadow = statics.get_shadow_material(texture_filter, current_pma);
+					Ref<ShaderMaterial> base_shadow = statics.get_shadow_material(texture_filter);
 					smat.instantiate();
 					smat->set_shader(base_shadow->get_shader());
 					smat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
+					// Mirror the display clone's vertex/cutout uniforms so the shadow tracks the rendered
+					// card: billboard orientation, fixed_size scaling, per-part z_spacing + depth_offset
+					// push, the scissor threshold, and the modulate fade. Without these the silhouette
+					// would collapse edge-on (billboard) and ignore modulate.a / a lowered scissor.
+					smat->set_shader_parameter("billboard_mode", (int) billboard);
+					smat->set_shader_parameter("fixed_size_enabled", fixed_size);
+					smat->set_shader_parameter("modulate_color", modulate);
+					smat->set_shader_parameter("layer_z_spacing", z_spacing);
+					smat->set_shader_parameter("depth_offset", depth_offset);
+					smat->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
 					shadow_material_cache[shadow_cache_key] = smat;
 				}
 				surface_shadow_material = smat->get_rid();
@@ -1187,7 +1320,12 @@ void SpineSprite3D::build_meshes() {
 
 		int base = (int) scratch_positions.size();
 		int num_verts = (int) world_verts->size() / 2;
-		float z = -((float) i) * z_spacing;
+		// Fix: store the RAW draw-order index in local z (NOT pre-multiplied by z_spacing) so the
+		// vertex shader can recover the index for depth_offset at ANY z_spacing (including the
+		// default 0). The shader applies z_spacing via the layer_z_spacing uniform (VERTEX.z *=
+		// layer_z_spacing). The AABB is therefore computed with raw indices in z and its z-extent
+		// is scaled by z_spacing below so culling matches the shader-applied world spacing.
+		float z = -((float) i);
 
 		float sx = flip_h ? -pixel_size : pixel_size;
 		float sy = flip_v ? pixel_size : -pixel_size;// base is -pixel_size (Y-flip); flip_v cancels it
@@ -1195,21 +1333,24 @@ void SpineSprite3D::build_meshes() {
 		for (int v = 0; v < num_verts; v++) {
 			float x = world_verts->buffer()[v * 2] * sx;
 			float y = world_verts->buffer()[v * 2 + 1] * sy;
+			// Stored z is the RAW draw index (shader multiplies by layer_z_spacing). For culling we
+			// need the WORLD-space z the shader actually produces, so scale by z_spacing here only.
 			Vector3 pos(x, y, z);
 			scratch_positions.push_back(pos);
 			scratch_uvs.push_back(Vector2(uvs->buffer()[v * 2], uvs->buffer()[v * 2 + 1]));
 			scratch_colors.push_back(Color(tint.r, tint.g, tint.b, tint.a));
 
+			Vector3 world_pos(x, y, z * z_spacing);// shader-applied world position, for AABB/billboard bounds
 			if (!aabb_init) {
-				aabb.position = pos;
+				aabb.position = world_pos;
 				aabb.size = Vector3();
 				aabb_init = true;
 			} else {
-				aabb.expand_to(pos);
+				aabb.expand_to(world_pos);
 			}
 
 			// F12: distance from the model origin, used to bound billboard rotation.
-			float dist_sq = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
+			float dist_sq = world_pos.x * world_pos.x + world_pos.y * world_pos.y + world_pos.z * world_pos.z;
 			if (dist_sq > billboard_radius_sq) billboard_radius_sq = dist_sq;
 		}
 
@@ -1233,17 +1374,37 @@ void SpineSprite3D::build_meshes() {
 		float r = spine::MathUtil::sqrt(billboard_radius_sq);
 		final_aabb = AABB(Vector3(-r, -r, -r), Vector3(2 * r, 2 * r, 2 * r));
 	}
+	// Fix: when fixed_size is enabled the vertex shader rescales the card every frame to keep a
+	// constant screen size (MODELVIEW columns are multiplied by a view/projection-derived factor),
+	// so the rendered geometry no longer fits the tight local-space AABB computed above and the
+	// sprite would be wrongly frustum-culled when it pops out of that small box. Mirror Godot's
+	// FLAG_FIXED_SIZE handling (which disables culling for fixed-size geometry) by using a large,
+	// effectively-unbounded custom AABB so a fixed_size sprite is never falsely culled. Applied to
+	// BOTH the mesh custom AABB (used by the shadow caster instance) and the display instance AABB
+	// below. Keep the tight AABB when fixed_size is false.
+	if (aabb_init && fixed_size) {
+		const float big = 1.0e9f;
+		final_aabb = AABB(Vector3(-big, -big, -big), Vector3(2 * big, 2 * big, 2 * big));
+	}
 
 	const int surface_count = local_surfaces.size();
 
 	// Persist the per-surface shadow materials so update_shadow_instance() can be driven later from
 	// NOTIFICATION_ENTER_WORLD (outside build_meshes(), where local_surfaces is gone). One RID per
 	// mesh surface (RID() for custom-material/no-shadow surfaces). Mirror the build-local result here.
+	// Fix (shadow #5): rewrite the persisted per-surface shadow set, and bump the generation ONLY when
+	// it actually changed (count or any RID differs) vs last frame. update_shadow_instance() compares
+	// this generation to what it last pushed and re-runs the per-surface override loop only on a change,
+	// so the animated fast path (identical surfaces every frame) skips that loop entirely.
+	bool shadow_set_changed = (shadow_surface_count != surface_count);
 	shadow_surface_count = surface_count;
 	shadow_surface_materials.resize(surface_count);
 	for (int s = 0; s < surface_count; s++) {
-		shadow_surface_materials.write[s] = local_surfaces[s].shadow_material;
+		const RID new_sm = local_surfaces[s].shadow_material;
+		if (!shadow_set_changed && shadow_surface_materials[s] != new_sm) shadow_set_changed = true;
+		shadow_surface_materials.write[s] = new_sm;
 	}
+	if (shadow_set_changed) shadow_surface_generation++;
 
 	// Fix #10: the debug overlay (build_debug_mesh) appends a PRIMITIVE_LINES surface
 	// to this same mesh AFTER build_meshes() returns; that surface is not region-updatable
@@ -1458,11 +1619,21 @@ void SpineSprite3D::build_meshes() {
 void SpineSprite3D::update_shadow_instance() {
 	const bool casts_now = get_cast_shadows_setting() != SHADOW_CASTING_SETTING_OFF;
 
+	// Local helper: tear down the attached state (detach scenario) once, and remember it is detached so
+	// repeated calls (e.g. every frame while not in a world, or while cast_shadow == Off) become no-ops.
+	auto detach_shadow = [&]() {
+		if (shadow_instance.is_valid() && shadow_instance_attached) {
+			RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+		}
+		shadow_instance_attached = false;
+		shadow_applied_scenario = RID();
+	};
+
 	// Never call get_world_3d() unless we are actually inside a world (see header note): doing so
 	// spams the engine error and returns an invalid ref. When detached, just detach the instance's
 	// scenario (no world access needed) and bail.
 	if (!inside_world) {
-		if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+		detach_shadow();
 		return;
 	}
 
@@ -1471,30 +1642,53 @@ void SpineSprite3D::update_shadow_instance() {
 	if (world.is_valid()) scenario = world->get_scenario();
 
 	if (casts_now && scenario.is_valid() && mesh.is_valid()) {
-		if (!shadow_instance.is_valid()) shadow_instance = RS::get_singleton()->instance_create();
-		RS::get_singleton()->instance_set_base(shadow_instance, mesh);
-		RS::get_singleton()->instance_set_scenario(shadow_instance, scenario);
-		// get_global_transform() does NOT require being in the world, so it is fine to call here.
-		RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
-		// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum's home
-		// differs by build/version: Godot 4.7's module split it into RenderingServerEnums, while Godot
-		// <= 4.6 and the GDExtension keep it on RenderingServer. SPINE_RS_ENUM resolves to the right one
-		// (RenderingServerEnums on 4.7 module, RS otherwise) -- a bare RSE:: breaks the 4.6 module build.
-		RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, SPINE_RS_ENUM::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
-		// Iterate the PERSISTED per-surface shadow materials (build_meshes filled these). When this
-		// runs from ENTER_WORLD before the first build_meshes(), shadow_surface_count is 0 and the
-		// loop is a no-op — base/scenario/transform are still set, and the next build_meshes() will
-		// populate the surfaces and call this again.
-		for (int s = 0; s < shadow_surface_count; s++) {
-			const RID &sm = shadow_surface_materials[s];
-			// RID() override (custom-material surfaces) clears any stale override so the
-			// surface falls back to the mesh's display material (which is shadows_disabled).
-			RS::get_singleton()->instance_set_surface_override_material(shadow_instance, s, sm);
+		// Fix (shadow #5): the animated fast path calls this every frame. Only re-issue the heavy RS
+		// work (base bind, scenario, cast-setting, per-surface override loop) when something that drives
+		// it actually changed since we last attached: a different mesh, a different scenario, a freshly
+		// rewritten shadow-surface set (generation bump), or coming from a detached state. When nothing
+		// changed, return immediately. The instance transform is NOT touched here on the steady path —
+		// NOTIFICATION_TRANSFORM_CHANGED keeps it synced; we push the transform only on (re)attach below.
+		const bool mesh_changed = (shadow_applied_mesh != mesh);
+		const bool scenario_changed = (shadow_applied_scenario != scenario);
+		const bool surfaces_changed = (shadow_applied_surface_generation != shadow_surface_generation);
+		if (shadow_instance_attached && !mesh_changed && !scenario_changed && !surfaces_changed) {
+			return;// nothing relevant changed: skip all RS calls this frame
 		}
-	} else if (shadow_instance.is_valid()) {
+
+		const bool reattaching = !shadow_instance_attached || mesh_changed || scenario_changed;
+		if (!shadow_instance.is_valid()) shadow_instance = RS::get_singleton()->instance_create();
+		if (mesh_changed || !shadow_instance_attached) RS::get_singleton()->instance_set_base(shadow_instance, mesh);
+		if (scenario_changed || !shadow_instance_attached) RS::get_singleton()->instance_set_scenario(shadow_instance, scenario);
+		if (reattaching) {
+			// Push the current transform only when (re)attaching; subsequent moves arrive via
+			// NOTIFICATION_TRANSFORM_CHANGED. get_global_transform() does NOT require being in the world.
+			RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
+			// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum's home
+			// differs by build/version: Godot 4.7's module split it into RenderingServerEnums, while Godot
+			// <= 4.6 and the GDExtension keep it on RenderingServer. SPINE_RS_ENUM resolves to the right one
+			// (RenderingServerEnums on 4.7 module, RS otherwise) -- a bare RSE:: breaks the 4.6 module build.
+			RS::get_singleton()->instance_geometry_set_cast_shadows_setting(shadow_instance, SPINE_RS_ENUM::SHADOW_CASTING_SETTING_SHADOWS_ONLY);
+		}
+		// Re-push the per-surface overrides when the set changed OR we just (re)attached (a fresh base
+		// bind drops any previous overrides). Iterate the PERSISTED per-surface shadow materials
+		// (build_meshes filled these). When this runs from ENTER_WORLD before the first build_meshes(),
+		// shadow_surface_count is 0 and the loop is a no-op.
+		if (surfaces_changed || reattaching) {
+			for (int s = 0; s < shadow_surface_count; s++) {
+				const RID &sm = shadow_surface_materials[s];
+				// RID() override (custom-material surfaces) clears any stale override so the
+				// surface falls back to the mesh's display material (which is shadows_disabled).
+				RS::get_singleton()->instance_set_surface_override_material(shadow_instance, s, sm);
+			}
+			shadow_applied_surface_generation = shadow_surface_generation;
+		}
+		shadow_applied_mesh = mesh;
+		shadow_applied_scenario = scenario;
+		shadow_instance_attached = true;
+	} else {
 		// Not casting (cast_shadow == Off) or no valid scenario/mesh: detach so it stops rendering.
 		// Do NOT free here; the instance is reused across rebuilds and freed in the destructor.
-		RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
+		detach_shadow();
 	}
 }
 
@@ -1856,6 +2050,17 @@ float SpineSprite3D::get_pixel_size() {
 
 void SpineSprite3D::set_z_spacing(float v) {
 	z_spacing = v;
+	// layer_z_spacing is a shader uniform set only on a cache MISS in build_meshes(); cache HITS
+	// would otherwise keep the old value. Re-apply it to every already-cached clone (mirrors
+	// set_modulate). build_meshes() is still needed because the AABB depends on z_spacing (the raw
+	// draw-order index is baked into local z and scaled by z_spacing for the world-space bounds).
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("layer_z_spacing", z_spacing);
+	}
+	// Mirror onto the shadow clones (same uniform, set only on a cache MISS in build_meshes()).
+	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("layer_z_spacing", z_spacing);
+	}
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -1885,6 +2090,10 @@ void SpineSprite3D::set_billboard(BillboardMode v) {
 	billboard = v;
 	// Update billboard_mode on all already-cached per-instance material clones.
 	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
+	}
+	// Mirror onto the shadow clones so the cast silhouette billboards with the rendered card.
+	for (auto &entry : shadow_material_cache) {
 		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
 	}
 	// Update debug lines material so overlay stays aligned with the rendered regions.
@@ -1946,6 +2155,10 @@ void SpineSprite3D::set_alpha_scissor_threshold(float v) {
 	for (auto &entry : material_cache) {
 		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
 	}
+	// Mirror onto the shadow clones so the cast cutout matches the display silhouette.
+	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+	}
 }
 
 float SpineSprite3D::get_alpha_scissor_threshold() {
@@ -1955,9 +2168,15 @@ float SpineSprite3D::get_alpha_scissor_threshold() {
 void SpineSprite3D::set_depth_offset(float v) {
 	if (depth_offset == v) return;
 	depth_offset = v;
-	material_cache.clear();
-	texture_3d_cache.clear();
-	if (skeleton.is_valid()) build_meshes();
+	// depth_offset is a pure shader UNIFORM (not part of the cache key or mesh geometry), so just
+	// re-apply it to the existing clones — no cache clear, no mesh rebuild (mirrors set_modulate).
+	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("depth_offset", depth_offset);
+	}
+	// Mirror onto the shadow clones so the cast silhouette gets the same per-part depth push.
+	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("depth_offset", depth_offset);
+	}
 }
 
 void SpineSprite3D::set_no_depth_test(bool v) {
@@ -1992,6 +2211,10 @@ void SpineSprite3D::set_fixed_size(bool v) {
 	for (auto &entry : material_cache) {
 		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
 	}
+	// Mirror onto the shadow clones so the cast silhouette keeps the same fixed-size scaling.
+	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
+	}
 }
 
 bool SpineSprite3D::get_fixed_size() {
@@ -2014,6 +2237,10 @@ void SpineSprite3D::set_modulate(const Color &v) {
 	modulate = v;
 	// Uniform-only: re-apply to existing clones.
 	for (auto &entry : material_cache) {
+		entry.value->set_shader_parameter("modulate_color", modulate);
+	}
+	// Mirror onto the shadow clones so fading via modulate.a also fades the cast shadow.
+	for (auto &entry : shadow_material_cache) {
 		entry.value->set_shader_parameter("modulate_color", modulate);
 	}
 }

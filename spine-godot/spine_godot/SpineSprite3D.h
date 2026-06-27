@@ -99,7 +99,7 @@ public:
 		ALPHA_CUT_DISABLED = 0,      // alpha blend, no opaque depth write
 		ALPHA_CUT_DISCARD = 1,       // scissor: discard below threshold, kept pixels write opaque depth (hard edges)
 		ALPHA_CUT_OPAQUE_PREPASS = 2,// depth_prepass_alpha: writes opaque depth, soft edges
-		ALPHA_CUT_HASH = 3,          // alpha-hash (TODO: true hash; currently == OPAQUE_PREPASS)
+		ALPHA_CUT_HASH = 3,          // alpha-hash: depth_draw_opaque + ALPHA_HASH_SCALE (opaque pass, dithered transparency)
 	};
 
 protected:
@@ -114,15 +114,17 @@ protected:
 	RID mesh;// owned RS mesh, created in Task 2
 
 	// Shadow casting is decoupled from display. The display path (set_base(mesh)) uses
-	// depth_draw_never/shadows_disabled materials so the flat parts layer by draw order and
-	// never z-fight; it casts nothing. This SEPARATE RS instance shares the SAME mesh RID but
+	// depth_draw_opaque/shadows_disabled materials so the opaque pixels of overlapping coplanar
+	// parts share the same depth and layer by draw order without z-fighting; it casts nothing.
+	// This SEPARATE RS instance shares the SAME mesh RID but
 	// renders into shadow maps ONLY (SHADOW_CASTING_SETTING_SHADOWS_ONLY) with per-surface
 	// alpha-cutout (depth_prepass_alpha) override materials, so it still casts a shaped shadow.
 	// Created lazily (only when cast_shadow != Off and the node is in a world), freed in the
 	// destructor; its scenario is detached on EXIT_WORLD and re-set on ENTER_WORLD / build_meshes.
 	RID shadow_instance;
-	// Per-(texture,filter,pma) shadow material clones, parallel to material_cache. Keeps the
-	// ShaderMaterial Refs alive so the RIDs handed to instance_set_surface_override_material stay valid.
+	// Per-(texture,filter) shadow material clones, parallel to material_cache. The shadow shader is
+	// pma-independent, so pma is NOT part of the key. Keeps the ShaderMaterial Refs alive so the RIDs
+	// handed to instance_set_surface_override_material stay valid.
 	HashMap<uint64_t, Ref<ShaderMaterial>> shadow_material_cache;
 
 	// Tracks whether the node is currently inside a World3D. Set from NOTIFICATION_ENTER_WORLD /
@@ -139,6 +141,20 @@ protected:
 	// (RID() for custom-material/no-shadow surfaces).
 	int shadow_surface_count = 0;
 	Vector<RID> shadow_surface_materials;
+
+	// Fix (shadow #5): cache of the last STATE applied to the shadow instance by update_shadow_instance(),
+	// so the per-frame fast path (which calls it every animated frame) can skip the heavy re-bind +
+	// per-surface override loop + cast-setting + scenario work when nothing relevant changed. Only the
+	// values that drive that work are tracked: the bound mesh, the scenario, whether we are casting, and
+	// a generation counter bumped whenever the per-surface shadow override set is rewritten. The
+	// per-frame instance_set_transform is dropped entirely (NOTIFICATION_TRANSFORM_CHANGED keeps the
+	// instance transform synced); the transform is pushed only on (re)attach inside update_shadow_instance.
+	// All-zero defaults are deliberately "never applied" so the first call always does the full bind.
+	bool shadow_instance_attached = false;         // whether the heavy bind/overrides were last applied (vs detached)
+	RID shadow_applied_mesh;                       // mesh RID last bound to the shadow instance
+	RID shadow_applied_scenario;                   // scenario RID last set on the shadow instance
+	uint32_t shadow_surface_generation = 0;        // bumped by build_meshes() when shadow_surface_materials changes
+	uint32_t shadow_applied_surface_generation = 0;// generation last pushed via the override loop
 
 	// Task 2: rendering parameters (exposed as properties in Task 3)
 	float pixel_size;
