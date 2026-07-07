@@ -47,21 +47,30 @@ class SpineBoneNode3D : public Node3D {
 protected:
 	String bone_name;
 	int bone_index;
+	SpineConstant::BoneMode bone_mode;
+	bool enabled;
 
 	static void _bind_methods();
 	void _notification(int what);
 	void _get_property_list(List<PropertyInfo> *list) const;
 	bool _get(const StringName &property, Variant &value) const;
 	bool _set(const StringName &property, const Variant &value);
+	void on_before_world_transforms_change(const Variant &_sprite);
 	void on_world_transforms_changed(const Variant &_sprite);
 	void update_transform(SpineSprite3D *sprite);
 
 public:
-	SpineBoneNode3D() : bone_index(-1) {
+	SpineBoneNode3D() : bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true) {
 	}
 
 	void set_bone_name(const String &_bone_name);
 	String get_bone_name();
+
+	void set_bone_mode(SpineConstant::BoneMode v);
+	SpineConstant::BoneMode get_bone_mode();
+
+	void set_enabled(bool v);
+	bool get_enabled();
 
 	int get_bone_index() {
 		return bone_index;
