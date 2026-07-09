@@ -57,6 +57,8 @@
 #include <godot_cpp/classes/world3d.hpp>      // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
 #include <godot_cpp/classes/image.hpp>        // Fix #2: Texture2D::get_image() return type
 #include <godot_cpp/classes/image_texture.hpp>// Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
+#include <godot_cpp/classes/camera3d.hpp>     // silhouette buffer: read the active camera's projection/transform
+#include <godot_cpp/classes/viewport.hpp>     // silhouette buffer: get_viewport()->get_camera_3d()/get_visible_rect()
 #include <godot_cpp/variant/variant.hpp>
 #else
 #include "scene/resources/shader.h"
@@ -64,6 +66,8 @@
 #include "scene/resources/mesh.h"
 #include "scene/resources/image_texture.h"// Fix #2: ImageTexture / Texture2D (3D-safe copy path is extension-only, kept for parity)
 #include "core/config/engine.h"           // Engine::get_singleton(); not transitively included in Godot 4.7
+#include "scene/3d/camera_3d.h"            // silhouette buffer: active camera projection/transform
+#include "scene/main/viewport.h"          // silhouette buffer: get_viewport()->get_camera_3d()
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
 #else
@@ -498,6 +502,175 @@ public:
 
 SpineSprite3DStatics *SpineSprite3DStatics::_instance = nullptr;
 
+// ---------------------------------------------------------------------------
+// Optional silhouette mask (opt-in per node). SpineSilhouetteBuffer is a shared offscreen ID/coverage
+// buffer: ONE RS viewport + scenario + camera, created lazily on the first enabled node and torn down
+// when the last disables (ref-counted). Each enabled node registers a mask RS instance (its display
+// mesh + per-surface ID-mask materials) into this scenario. Each frame the camera mirrors the active
+// Camera3D and the viewport is sized to the main viewport (halved if requested), so the buffer aligns
+// with SCREEN_UV. viewport_get_texture() is set as `spine_coverage` on each enabled node's display
+// material. Off by default -> this object never exists and nothing extra renders.
+// ---------------------------------------------------------------------------
+static void spine_free_rid(const RID &rid) {
+	if (!rid.is_valid()) return;
+#ifdef SPINE_GODOT_EXTENSION
+	RS::get_singleton()->free_rid(rid);
+#else
+	RS::get_singleton()->free(rid);
+#endif
+}
+
+// Mask shader for a filter: standard vertex (billboard / fixed_size / z_spacing collapse / depth_offset)
+// so the silhouette matches the rendered card; fragment writes the per-material encoded id into ALBEDO
+// where the atlas alpha passes the opaque cutout, so the frontmost character's id wins on overlap.
+static String spine_silhouette_mask_shader_source(SpineSprite3D::TextureFilter filter) {
+	const char *filter_hint = SpineSprite3DStatics::texture_filter_hint(filter);
+	return String("shader_type spatial;\n"
+				  "render_mode unshaded, cull_disabled, depth_draw_opaque, shadows_disabled;\n"
+				  "uniform sampler2D albedo_tex : source_color, ") +
+		   filter_hint +
+		   ";\n"
+		   "uniform float spine_object_id = 0.0;\n"
+		   "uniform int billboard_mode = 0;\n"
+		   "uniform bool fixed_size_enabled = false;\n"
+		   "uniform vec4 modulate_color = vec4(1.0);\n"
+		   "uniform float layer_z_spacing = 0.0;\n"
+		   "uniform float depth_offset = 0.0;\n"
+		   "uniform float alpha_scissor_threshold = 0.5;\n"
+		   "void vertex() {\n"
+		   "    if (billboard_mode == 1) {\n"
+		   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);\n"
+		   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+		   "    } else if (billboard_mode == 2) {\n"
+		   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0), vec4(0.0,1.0,0.0,0.0), vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0), MODEL_MATRIX[3]);\n"
+		   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+		   "    }\n"
+		   "    if (fixed_size_enabled) {\n"
+		   "        if (PROJECTION_MATRIX[3][3] != 0.0) { float sc = abs(1.0 / (2.0 * PROJECTION_MATRIX[1][1])) * 2.0; MODELVIEW_MATRIX[0] *= sc; MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
+		   "        else { float sc = -(MODELVIEW_MATRIX)[3].z; MODELVIEW_MATRIX[0] *= sc; MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
+		   "    }\n"
+		   "    float _draw_index = VERTEX.z;\n"
+		   "    VERTEX.z *= layer_z_spacing;\n"
+		   "    if (depth_offset != 0.0) { vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0); _vpos.z -= _draw_index * depth_offset; POSITION = PROJECTION_MATRIX * _vpos; }\n"
+		   "}\n"
+		   "void fragment() {\n"
+		   "    float a = texture(albedo_tex, UV).a * COLOR.a * modulate_color.a;\n"
+		   "    ALBEDO = vec3(spine_object_id);\n"
+		   "    ALPHA = a;\n"
+		   "    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n"
+		   "}\n";
+}
+
+struct SpineSilhouetteBuffer {
+private:
+	static SpineSilhouetteBuffer *_instance;
+	RID viewport;
+	RID scenario;
+	RID camera;
+	int ref_count = 0;
+	int next_id = 1;// 1..255; 0 = empty (background)
+	Size2i size = Size2i(0, 0);
+	uint64_t last_sync_frame = 0;
+	Ref<Shader> mask_shaders[4];
+	Ref<ShaderMaterial> discard_material;
+
+public:
+	static SpineSilhouetteBuffer &instance() {
+		if (!_instance) _instance = new SpineSilhouetteBuffer();
+		return *_instance;
+	}
+
+	RID get_scenario() const { return scenario; }
+	RID get_texture() const { return viewport.is_valid() ? RS::get_singleton()->viewport_get_texture(viewport) : RID(); }
+
+	Ref<Shader> get_mask_shader(SpineSprite3D::TextureFilter filter) {
+		int k = (int) filter & 0x3;
+		if (!mask_shaders[k].is_valid()) {
+			mask_shaders[k].instantiate();
+			mask_shaders[k]->set_code(spine_silhouette_mask_shader_source(filter));
+		}
+		return mask_shaders[k];
+	}
+
+	Ref<ShaderMaterial> get_discard_material() {
+		if (!discard_material.is_valid()) {
+			Ref<Shader> shader;
+			shader.instantiate();
+			shader->set_code("shader_type spatial;\n"
+							 "render_mode unshaded, cull_disabled, shadows_disabled;\n"
+							 "void fragment() { ALPHA = 0.0; ALPHA_SCISSOR_THRESHOLD = 1.0; }\n");
+			discard_material.instantiate();
+			discard_material->set_shader(shader);
+		}
+		return discard_material;
+	}
+
+	int acquire_id() {
+		int id = next_id++;
+		if (next_id > 255) next_id = 1;
+		return id;
+	}
+
+	// First ref creates the RS viewport/scenario/camera; last ref frees them.
+	void add_ref() {
+		ref_count++;
+		if (ref_count == 1) {
+			RS *rs = RS::get_singleton();
+			scenario = rs->scenario_create();
+			camera = rs->camera_create();
+			viewport = rs->viewport_create();
+			rs->viewport_set_scenario(viewport, scenario);
+			rs->viewport_attach_camera(viewport, camera);
+			rs->viewport_set_transparent_background(viewport, true);
+			rs->viewport_set_update_mode(viewport, SPINE_RS_ENUM::VIEWPORT_UPDATE_ALWAYS);
+			rs->viewport_set_active(viewport, true);
+			size = Size2i(0, 0);
+		}
+	}
+	void release_ref() {
+		if (ref_count <= 0) return;
+		ref_count--;
+		if (ref_count == 0) {
+			spine_free_rid(viewport);
+			spine_free_rid(camera);
+			spine_free_rid(scenario);
+			viewport = camera = scenario = RID();
+			size = Size2i(0, 0);
+		}
+	}
+
+	// Per frame (guarded): size the viewport to the main viewport (halved if requested) and mirror the
+	// active Camera3D's transform + projection so the coverage aligns with SCREEN_UV.
+	void sync(Camera3D *active_camera, const Size2i &main_size, bool half_res, uint64_t frame) {
+		if (!viewport.is_valid() || last_sync_frame == frame) return;
+		last_sync_frame = frame;
+		RS *rs = RS::get_singleton();
+		Size2i target = main_size;
+		if (half_res) target = Size2i(MAX(1, main_size.x / 2), MAX(1, main_size.y / 2));
+		if (target != size && target.x > 0 && target.y > 0) {
+			rs->viewport_set_size(viewport, target.x, target.y);
+			size = target;
+		}
+		if (active_camera && size.x > 0) {
+			rs->camera_set_transform(camera, active_camera->get_global_transform());
+			if (active_camera->get_projection() == Camera3D::PROJECTION_ORTHOGONAL) {
+				rs->camera_set_orthogonal(camera, active_camera->get_size(), active_camera->get_near(), active_camera->get_far());
+			} else {
+				rs->camera_set_perspective(camera, active_camera->get_fov(), active_camera->get_near(), active_camera->get_far());
+			}
+		}
+	}
+
+	static void shutdown() {
+		if (_instance) {
+			delete _instance;
+			_instance = nullptr;
+		}
+	}
+};
+
+SpineSilhouetteBuffer *SpineSilhouetteBuffer::_instance = nullptr;
+
 void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_skeleton_data_res", "skeleton_data_res"), &SpineSprite3D::set_skeleton_data_res);
 	ClassDB::bind_method(D_METHOD("get_skeleton_data_res"), &SpineSprite3D::get_skeleton_data_res);
@@ -552,6 +725,10 @@ void SpineSprite3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_render_priority"), &SpineSprite3D::get_render_priority);
 	ClassDB::bind_method(D_METHOD("set_modulate", "v"), &SpineSprite3D::set_modulate);
 	ClassDB::bind_method(D_METHOD("get_modulate"), &SpineSprite3D::get_modulate);
+	ClassDB::bind_method(D_METHOD("set_silhouette_mask_enabled", "v"), &SpineSprite3D::set_silhouette_mask_enabled);
+	ClassDB::bind_method(D_METHOD("get_silhouette_mask_enabled"), &SpineSprite3D::get_silhouette_mask_enabled);
+	ClassDB::bind_method(D_METHOD("set_silhouette_mask_half_res", "v"), &SpineSprite3D::set_silhouette_mask_half_res);
+	ClassDB::bind_method(D_METHOD("get_silhouette_mask_half_res"), &SpineSprite3D::get_silhouette_mask_half_res);
 
 	ClassDB::bind_method(D_METHOD("set_normal_material", "material"), &SpineSprite3D::set_normal_material);
 	ClassDB::bind_method(D_METHOD("get_normal_material"), &SpineSprite3D::get_normal_material);
@@ -646,6 +823,8 @@ void SpineSprite3D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "fixed_size"), "set_fixed_size", "get_fixed_size");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "render_priority", PROPERTY_HINT_RANGE, "-128,127,1"), "set_render_priority", "get_render_priority");
 	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "modulate"), "set_modulate", "get_modulate");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "silhouette_mask_enabled"), "set_silhouette_mask_enabled", "get_silhouette_mask_enabled");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "silhouette_mask_half_res"), "set_silhouette_mask_half_res", "get_silhouette_mask_half_res");
 	ADD_GROUP("Materials", "");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "normal_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_normal_material",
 				 "get_normal_material");
@@ -678,7 +857,9 @@ SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
 	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), texture_filter(TEXTURE_FILTER_LINEAR),
 	  shaded(false), alpha_cut(ALPHA_CUT_DISCARD), alpha_scissor_threshold(0.5f), depth_offset(0.0f), no_depth_test(false), double_sided(true),
-	  fixed_size(false), render_priority(0), modulate(Color(1, 1, 1, 1)), preview_skin("Default"), preview_animation("-- Empty --"),
+	  fixed_size(false), render_priority(0), modulate(Color(1, 1, 1, 1)),
+	  silhouette_mask_enabled(false), silhouette_mask_half_res(true), silhouette_id(0),
+	  preview_skin("Default"), preview_animation("-- Empty --"),
 	  preview_frame(false), preview_time(0),
 	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
 	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)), debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)),
@@ -714,6 +895,15 @@ SpineSprite3D::~SpineSprite3D() {
 		RS::get_singleton()->free(shadow_instance);
 #endif
 		shadow_instance = RID();
+	}
+	// Free the silhouette mask instance and release this node's ref on the shared buffer.
+	if (silhouette_instance.is_valid()) {
+		spine_free_rid(silhouette_instance);
+		silhouette_instance = RID();
+	}
+	if (silhouette_registered) {
+		SpineSilhouetteBuffer::instance().release_ref();
+		silhouette_registered = false;
 	}
 	if (mesh.is_valid()) {
 #ifdef SPINE_GODOT_EXTENSION
@@ -758,12 +948,27 @@ void SpineSprite3D::on_skeleton_data_changed() {
 		RS::get_singleton()->instance_set_base(shadow_instance, RID());
 		RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
 	}
+	if (silhouette_instance.is_valid()) {
+		RS::get_singleton()->instance_set_base(silhouette_instance, RID());
+		RS::get_singleton()->instance_set_scenario(silhouette_instance, RID());
+	}
 	// Task 4: clear per-instance material cache; textures change with skeleton data
 	material_cache.clear();
 	// Fix #2: textures change with the skeleton data, so any cached 3D-safe copies are stale.
 	texture_3d_cache.clear();
+	// Custom-material clones are keyed on texture too; drop them when the skeleton's textures change.
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
 	// Shadow material clones are keyed on texture; textures change with skeleton data, so drop them.
 	shadow_material_cache.clear();
+	// Silhouette mask materials are also keyed on texture and point at this mesh's surfaces.
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_instance_attached = false;
+	silhouette_applied_mesh = RID();
+	silhouette_applied_scenario = RID();
+	silhouette_surface_generation++;
 	// Drop persisted per-surface shadow material RIDs too: the mesh is freed above, so the surface
 	// RIDs they refer to are stale and must not be reused against the next (re)built mesh.
 	shadow_surface_materials.clear();
@@ -820,12 +1025,13 @@ Ref<SpineAnimationState> SpineSprite3D::get_animation_state() {
 void SpineSprite3D::_notification(int what) {
 	switch (what) {
 		case NOTIFICATION_READY: {
-			set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
+			set_process_internal(update_mode == SpineConstant::UpdateMode_Process || silhouette_mask_enabled);
 			set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
 			break;
 		}
 		case NOTIFICATION_INTERNAL_PROCESS: {
 			if (update_mode == SpineConstant::UpdateMode_Process) update_skeleton(get_process_delta_time());
+			else if (silhouette_mask_enabled) update_silhouette_instance();
 			break;
 		}
 		case NOTIFICATION_INTERNAL_PHYSICS_PROCESS: {
@@ -842,6 +1048,7 @@ void SpineSprite3D::_notification(int what) {
 			// state (not the build-local arrays) so it can finish the setup here, even though no further
 			// build_meshes() may run in Manual update mode.
 			update_shadow_instance();
+			if (silhouette_mask_enabled) update_silhouette_instance();
 			break;
 		}
 		case NOTIFICATION_EXIT_WORLD: {
@@ -854,12 +1061,18 @@ void SpineSprite3D::_notification(int what) {
 			// ENTER_WORLD's update_shadow_instance() does a full re-attach (it compares against this).
 			shadow_instance_attached = false;
 			shadow_applied_scenario = RID();
+			if (silhouette_instance.is_valid()) RS::get_singleton()->instance_set_scenario(silhouette_instance, RID());
+			silhouette_instance_attached = false;
+			silhouette_applied_scenario = RID();
+			silhouette_applied_surface_generation = 0;
+
 			break;
 		}
 		case NOTIFICATION_TRANSFORM_CHANGED:
 		case NOTIFICATION_LOCAL_TRANSFORM_CHANGED: {
 			// Keep the separate shadows-only instance aligned with the node's global transform.
 			if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
+			if (silhouette_instance.is_valid()) RS::get_singleton()->instance_set_transform(silhouette_instance, get_global_transform());
 			break;
 		}
 		default:
@@ -889,6 +1102,7 @@ void SpineSprite3D::update_skeleton(float delta) {
 	if (!is_visible_in_tree()) return;// skip only the GPU rebuild while hidden
 	build_meshes();
 	build_debug_mesh();// Task 11: rebuild debug line overlay
+	if (silhouette_mask_enabled) update_silhouette_instance();
 }
 
 // Fix #10: a single fully-resolved CPU surface produced by build_meshes()'s slot
@@ -909,6 +1123,7 @@ struct SpineSprite3DLocalSurface {
 	bool shaded = false;
 	RID material;       // resolved DISPLAY material RID for this surface (RID() if none assigned)
 	RID shadow_material;// resolved SHADOW caster material RID for this surface (RID() if none / custom material)
+	RID silhouette_material;// resolved silhouette mask material RID for this surface
 };
 
 // Fix #2: avoid Godot's "texture used in 3D" automatic reimport, which re-imports the
@@ -957,6 +1172,51 @@ Ref<Texture2D> SpineSprite3D::get_3d_safe_texture(const Ref<Texture> &tex) {
 #endif
 }
 
+// Custom-material opt-in probe. Returns the name of the recognized texture uniform a user's custom
+// shader declares — "spine_texture" (the fork's convention, so those shaders port here unchanged) or
+// "albedo_texture" — or StringName() if it declares neither. When non-empty, flush() binds the atlas
+// texture to that uniform on a per-(material,texture) clone; when empty, the material is used verbatim.
+// Only the sampler NAME is matched (not its type); a user who declares one of these names is opting in.
+// flush() memoizes the result per shader RID in custom_shader_uniform, so this runs once per shader,
+// not every frame.
+static StringName spine_sprite_3d_custom_texture_uniform(const Ref<Shader> &shader) {
+	if (!shader.is_valid()) return StringName();
+	static const char *CANDIDATES[] = {"spine_texture", "albedo_texture"};
+#ifdef SPINE_GODOT_EXTENSION
+	Array params = shader->get_shader_uniform_list(false);
+	for (int i = 0; i < params.size(); i++) {
+		Dictionary d = params[i];
+		String name = d.get("name", String());
+		for (const char *candidate : CANDIDATES) {
+			if (name == candidate) return StringName(candidate);
+		}
+	}
+#else
+	List<PropertyInfo> params;
+	shader->get_shader_uniform_list(&params, false);
+	for (const PropertyInfo &pi : params) {
+		for (const char *candidate : CANDIDATES) {
+			if (pi.name == candidate) return StringName(candidate);
+		}
+	}
+#endif
+	return StringName();
+}
+
+void SpineSprite3D::apply_custom_material_uniforms(const Ref<ShaderMaterial> &mat) const {
+	if (!mat.is_valid()) return;
+	// Same standard uniforms the built-in material clones receive (SpineSprite3D.cpp flush()). Set
+	// unconditionally: assigning a parameter the shader does not declare is harmless in Godot. A
+	// custom shader that DOES declare them (typically via spine_sprite_3d.gdshaderinc) then gets the
+	// same live billboard / z_spacing / depth_offset / modulate / scissor / fixed_size values.
+	mat->set_shader_parameter("billboard_mode", (int) billboard);
+	mat->set_shader_parameter("layer_z_spacing", z_spacing);
+	mat->set_shader_parameter("depth_offset", depth_offset);
+	mat->set_shader_parameter("modulate_color", modulate);
+	mat->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+	mat->set_shader_parameter("fixed_size_enabled", fixed_size);
+}
+
 void SpineSprite3D::build_meshes() {
 	// F1/F6: if there is no skeleton, clear the instance base (the mesh RID, if any,
 	// would otherwise be referenced by the GeometryInstance3D) and free the mesh.
@@ -969,6 +1229,20 @@ void SpineSprite3D::build_meshes() {
 			RS::get_singleton()->instance_set_base(shadow_instance, RID());
 			RS::get_singleton()->instance_set_scenario(shadow_instance, RID());
 		}
+		// Same for the silhouette mask instance: detach it from the mesh being freed (it is rebuilt by
+		// update_silhouette_instance() on the next build with a valid mesh).
+		if (silhouette_instance.is_valid()) {
+			RS::get_singleton()->instance_set_base(silhouette_instance, RID());
+			RS::get_singleton()->instance_set_scenario(silhouette_instance, RID());
+		}
+		silhouette_material_cache.clear();
+		silhouette_surface_materials.clear();
+		silhouette_surface_count = 0;
+		silhouette_instance_attached = false;
+		silhouette_applied_mesh = RID();
+		silhouette_applied_scenario = RID();
+		silhouette_applied_surface_generation = 0;
+		silhouette_surface_generation++;
 		shadow_material_cache.clear();
 		// Mesh is being freed below; drop the persisted per-surface shadow RIDs so they are not
 		// reused against a future mesh (parallel to clearing shadow_material_cache).
@@ -1045,6 +1319,61 @@ void SpineSprite3D::build_meshes() {
 	// Fix #10: this no longer touches the RS mesh; it resolves the material RID exactly as
 	// before and appends a SpineSprite3DLocalSurface. Whether the mesh is rebuilt or
 	// region-updated is decided once after all surfaces are collected.
+	//
+	// Shadow caster resolver: returns the cutout SHADOW material RID for (texture, filter), cloned from
+	// the shared per-filter base shadow shader and cached per (filter, texture) in shadow_material_cache.
+	// The shadow shader is a minimal alpha-scissor cutout INDEPENDENT of the display material, so it is
+	// shared by built-in AND opted-in custom-material surfaces alike — both only need the atlas alpha
+	// plus the standard vertex uniforms so the silhouette tracks the rendered card. Keyed on (filter,
+	// texture) only (pma-independent). Caller gates on `casts`.
+	auto resolve_shadow_rid = [&](const Ref<Texture> &texture, uint64_t tex_id) -> RID {
+		uint64_t shadow_variant_bits = (uint64_t) ((int) texture_filter & 0x3);
+		uint64_t shadow_cache_key = (shadow_variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
+		Ref<ShaderMaterial> smat;
+		if (shadow_material_cache.has(shadow_cache_key)) {
+			smat = shadow_material_cache[shadow_cache_key];
+		} else {
+			Ref<ShaderMaterial> base_shadow = statics.get_shadow_material(texture_filter);
+			smat.instantiate();
+			smat->set_shader(base_shadow->get_shader());
+			smat->set_shader_parameter("albedo_tex", get_3d_safe_texture(texture));
+			// Mirror the display clone's vertex/cutout uniforms so the shadow tracks the rendered card:
+			// billboard orientation, fixed_size scaling, per-part z_spacing + depth_offset push, the
+			// scissor threshold, and the modulate fade.
+			smat->set_shader_parameter("billboard_mode", (int) billboard);
+			smat->set_shader_parameter("fixed_size_enabled", fixed_size);
+			smat->set_shader_parameter("modulate_color", modulate);
+			smat->set_shader_parameter("layer_z_spacing", z_spacing);
+			smat->set_shader_parameter("depth_offset", depth_offset);
+			smat->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+			shadow_material_cache[shadow_cache_key] = smat;
+		}
+		return smat->get_rid();
+	};
+
+	auto resolve_silhouette_rid = [&](const Ref<Texture> &texture, uint64_t tex_id) -> RID {
+		if (!silhouette_mask_enabled || !texture.is_valid()) return RID();
+		uint64_t silhouette_variant_bits = (uint64_t) ((int) texture_filter & 0x3);
+		uint64_t silhouette_cache_key = (silhouette_variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
+		Ref<ShaderMaterial> mm;
+		if (silhouette_material_cache.has(silhouette_cache_key)) {
+			mm = silhouette_material_cache[silhouette_cache_key];
+		} else {
+			mm.instantiate();
+			mm->set_shader(SpineSilhouetteBuffer::instance().get_mask_shader(texture_filter));
+			mm->set_shader_parameter("albedo_tex", get_3d_safe_texture(texture));
+			mm->set_shader_parameter("spine_object_id", (float) silhouette_id / 255.0f);
+			mm->set_shader_parameter("billboard_mode", (int) billboard);
+			mm->set_shader_parameter("fixed_size_enabled", fixed_size);
+			mm->set_shader_parameter("modulate_color", modulate);
+			mm->set_shader_parameter("layer_z_spacing", z_spacing);
+			mm->set_shader_parameter("depth_offset", depth_offset);
+			mm->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+			silhouette_material_cache[silhouette_cache_key] = mm;
+		}
+		return mm->get_rid();
+	};
+
 	auto flush = [&]() {
 		if (scratch_indices.size() == 0) return;
 
@@ -1086,18 +1415,80 @@ void SpineSprite3D::build_meshes() {
 
 		RID surface_material;
 		RID surface_shadow_material;// SHADOW caster override for this surface (auto-generated surfaces only)
+		RID surface_silhouette_material;
+		uint64_t current_tex_id = (current_ro && current_ro->texture.is_valid()) ?
+				(uint64_t) current_ro->texture->get_rid().get_id() : 0ull;
 		if (custom_mat.is_valid()) {
-			// User-owned material: use as-is; do NOT set albedo_tex or maps on it.
-			// F13 NOTE: the spine mesh winding is reversed by the base Y-flip
-			// (sy = -pixel_size), which the auto-generated shaders compensate for
-			// via "render_mode ... cull_disabled". User-supplied custom materials are
-			// assigned verbatim — a StandardMaterial3D / ShaderMaterial with default
-			// back-face culling will cull the visible faces and the slot will appear
-			// invisible. Custom materials MUST disable back-face culling (cull_disabled
-			// / no cull). We cannot safely mutate a user's material here.
-			// No auto shadow override is built for custom-material surfaces (we don't control their
-			// albedo_tex), so such slots do not cast the auto alpha-cutout shadow.
-			surface_material = custom_mat->get_rid();
+			// A custom ShaderMaterial may OPT IN to automatic atlas binding by declaring a
+			// "spine_texture" or "albedo_texture" sampler2D uniform (spatial shaders have no
+			// draw-time TEXTURE like 2D canvas_item shaders do, so the texture must arrive as a
+			// uniform). When it does, hand the surface a per-(material, texture) CLONE with that
+			// uniform set to the 3D-safe atlas texture, and leave everything else about the material
+			// exactly as authored. When it declares neither uniform — or is not a ShaderMaterial
+			// (e.g. StandardMaterial3D) — it is used verbatim, exactly as before.
+			//
+			// F13 NOTE (still applies): the spine mesh winding is reversed by the base Y-flip
+			// (sy = -pixel_size). We do NOT rewrite the user's render_mode, so a custom material
+			// MUST disable back-face culling (cull_disabled / no cull) or the slot renders invisible.
+			//
+			// Shadows: OPTED-IN custom materials (declaring spine_texture/albedo_texture) DO cast the auto
+			// alpha-cutout shadow — see the resolve_shadow_rid call below. Verbatim custom materials (no
+			// recognized uniform, or a non-ShaderMaterial) still get no auto shadow, since we cannot know
+			// their atlas usage.
+			Ref<ShaderMaterial> shader_mat = custom_mat;// invalid Ref if custom_mat is not a ShaderMaterial
+
+			// Opt-in detection, memoized per shader RID so the uniform list is scanned once, not per frame.
+			StringName tex_uniform;
+			if (shader_mat.is_valid()) {
+				Ref<Shader> shd = shader_mat->get_shader();
+				uint64_t shader_id = shd.is_valid() ? (uint64_t) shd->get_rid().get_id() : 0;
+				if (custom_shader_uniform.has(shader_id)) {
+					tex_uniform = custom_shader_uniform[shader_id];
+				} else {
+					tex_uniform = spine_sprite_3d_custom_texture_uniform(shd);
+					custom_shader_uniform[shader_id] = tex_uniform;
+				}
+			}
+
+			if (shader_mat.is_valid() && tex_uniform != StringName() && current_ro && current_ro->texture.is_valid()) {
+				// Opted in: hand the surface a per-(material,texture) clone with the atlas + standard
+				// uniforms bound. Key = hash-combine(custom material rid, texture rid); detection + clone
+				// run once per unique pair, later frames hit the cache. The cache holds ONLY these owned
+				// clones, so the live uniform setters can safely update them.
+				uint64_t mat_id = (uint64_t) shader_mat->get_rid().get_id();
+				uint64_t tex_id = current_tex_id;
+				uint64_t key = mat_id;
+				key ^= tex_id + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+
+				Ref<ShaderMaterial> clone;
+				if (custom_material_cache.has(key)) {
+					clone = custom_material_cache[key];
+				} else {
+					// Shallow duplicate: shares the Shader resource but copies the parameter map, so
+					// setting parameters on the clone never mutates the user's (possibly shared) material.
+					clone = shader_mat->duplicate();
+					if (clone.is_valid()) {
+						clone->set_shader_parameter(tex_uniform, get_3d_safe_texture(current_ro->texture));
+						apply_custom_material_uniforms(clone);
+						custom_material_cache[key] = clone;
+					} else {
+						clone = shader_mat;// duplicate failed -> fall back to verbatim
+					}
+				}
+				surface_material = clone->get_rid();
+
+				// Opted-in custom materials cast the SAME auto cutout shadow as built-in surfaces: the
+				// shadow shader is independent of the display material and only needs the atlas alpha +
+				// the standard vertex uniforms. Requires the node's cast_shadow ON and the custom
+				// shader's render_mode to include shadows_disabled (as the include's examples do) so the
+				// main mesh does not also cast and double up. The shadow tracks the card via the mirrored
+				// billboard/z_spacing/depth_offset uniforms, so it matches when the custom shader uses
+				// spine_apply_vertex; a divergent custom vertex may not track.
+				if (casts) surface_shadow_material = resolve_shadow_rid(current_ro->texture, tex_id);
+			} else {
+				// Not a ShaderMaterial, declares no recognized uniform, or no texture yet -> verbatim.
+				surface_material = custom_mat->get_rid();
+			}
 		} else if (current_ro && current_ro->texture.is_valid()) {
 			// Build cache key: 10-bit shader variant key in the top bits, texture identity in the lower
 			// 54 bits. The variant key (pma|shaded|blend|filter|alpha_cut|no_depth_test|double_sided)
@@ -1112,7 +1503,7 @@ void SpineSprite3D::build_meshes() {
 			// fragment the cache). The variant bits stay in the top 10 bits and never collide with this.
 			uint64_t variant_bits = (uint64_t) SpineSprite3DStatics::variant_key(current_blend, shaded, current_pma, texture_filter, alpha_cut,
 																				 no_depth_test, double_sided);
-			uint64_t tex_id = (uint64_t) current_ro->texture->get_rid().get_id();
+			uint64_t tex_id = current_tex_id;
 			uint64_t tex_identity = tex_id;
 			if (shaded) {
 				// Boost-style hash_combine so distinct (albedo, normal, specular) triples map to distinct
@@ -1154,38 +1545,12 @@ void SpineSprite3D::build_meshes() {
 			}
 			surface_material = mat->get_rid();
 
-			// Shadow caster: clone a per-(texture,filter) shadow material that cuts out by the
-			// SAME 3d-safe texture's alpha. Only needed when this node casts; assigned as a surface
-			// override on the separate SHADOWS_ONLY instance below. Keyed on (filter, texture) only —
-			// the shadow shader is pma-independent, so pma is NOT part of the key (keying on it would
-			// double the cache with identical clones). Kept in its own map so it survives
-			// material_cache changes independently.
-			if (casts) {
-				uint64_t shadow_variant_bits = (uint64_t) ((int) texture_filter & 0x3);
-				uint64_t shadow_cache_key = (shadow_variant_bits << 56) | (tex_id & 0x00FFFFFFFFFFFFFFull);
-				Ref<ShaderMaterial> smat;
-				if (shadow_material_cache.has(shadow_cache_key)) {
-					smat = shadow_material_cache[shadow_cache_key];
-				} else {
-					Ref<ShaderMaterial> base_shadow = statics.get_shadow_material(texture_filter);
-					smat.instantiate();
-					smat->set_shader(base_shadow->get_shader());
-					smat->set_shader_parameter("albedo_tex", get_3d_safe_texture(current_ro->texture));
-					// Mirror the display clone's vertex/cutout uniforms so the shadow tracks the rendered
-					// card: billboard orientation, fixed_size scaling, per-part z_spacing + depth_offset
-					// push, the scissor threshold, and the modulate fade. Without these the silhouette
-					// would collapse edge-on (billboard) and ignore modulate.a / a lowered scissor.
-					smat->set_shader_parameter("billboard_mode", (int) billboard);
-					smat->set_shader_parameter("fixed_size_enabled", fixed_size);
-					smat->set_shader_parameter("modulate_color", modulate);
-					smat->set_shader_parameter("layer_z_spacing", z_spacing);
-					smat->set_shader_parameter("depth_offset", depth_offset);
-					smat->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
-					shadow_material_cache[shadow_cache_key] = smat;
-				}
-				surface_shadow_material = smat->get_rid();
-			}
+			// Shadow caster: cutout material keyed on this surface's (texture, filter). Only when the
+			// node casts; assigned as a surface override on the separate SHADOWS_ONLY instance below.
+			if (casts) surface_shadow_material = resolve_shadow_rid(current_ro->texture, tex_id);
 		}
+		if (current_ro && current_ro->texture.is_valid())
+			surface_silhouette_material = resolve_silhouette_rid(current_ro->texture, current_tex_id);
 
 		SpineSprite3DLocalSurface ls;
 		ls.positions = scratch_positions;
@@ -1195,6 +1560,7 @@ void SpineSprite3D::build_meshes() {
 		ls.shaded = shaded;
 		ls.material = surface_material;
 		ls.shadow_material = surface_shadow_material;
+		ls.silhouette_material = surface_silhouette_material;
 		local_surfaces.push_back(ls);
 
 		// Reset scratch for next surface.
@@ -1318,7 +1684,7 @@ void SpineSprite3D::build_meshes() {
 		current_pma = slot_pma;
 		current_slot_node = this_slot_node;
 
-		int base = (int) scratch_positions.size();
+		int vertex_base = (int) scratch_positions.size();
 		int num_verts = (int) world_verts->size() / 2;
 		// Fix: store the RAW draw-order index in local z (NOT pre-multiplied by z_spacing) so the
 		// vertex shader can recover the index for depth_offset at ANY z_spacing (including the
@@ -1355,7 +1721,7 @@ void SpineSprite3D::build_meshes() {
 		}
 
 		for (int t = 0; t < (int) indices->size(); t++) {
-			scratch_indices.push_back(base + (int) indices->buffer()[t]);
+			scratch_indices.push_back(vertex_base + (int) indices->buffer()[t]);
 		}
 
 		skeleton_clipper->clipEnd(*slot);
@@ -1405,6 +1771,22 @@ void SpineSprite3D::build_meshes() {
 		shadow_surface_materials.write[s] = new_sm;
 	}
 	if (shadow_set_changed) shadow_surface_generation++;
+
+	if (silhouette_mask_enabled) {
+		bool silhouette_set_changed = (silhouette_surface_count != surface_count);
+		silhouette_surface_count = surface_count;
+		silhouette_surface_materials.resize(surface_count);
+		for (int s = 0; s < surface_count; s++) {
+			const RID new_sm = local_surfaces[s].silhouette_material;
+			if (!silhouette_set_changed && silhouette_surface_materials[s] != new_sm) silhouette_set_changed = true;
+			silhouette_surface_materials.write[s] = new_sm;
+		}
+		if (silhouette_set_changed) silhouette_surface_generation++;
+	} else if (silhouette_surface_count != 0 || silhouette_surface_materials.size() != 0) {
+		silhouette_surface_count = 0;
+		silhouette_surface_materials.clear();
+		silhouette_surface_generation++;
+	}
 
 	// Fix #10: the debug overlay (build_debug_mesh) appends a PRIMITIVE_LINES surface
 	// to this same mesh AFTER build_meshes() returns; that surface is not region-updatable
@@ -1475,6 +1857,7 @@ void SpineSprite3D::build_meshes() {
 		// Surface topology is unchanged on the fast path, but the cast_shadow setting (or world
 		// membership) may have toggled since last frame, so refresh the shadow instance here too.
 		update_shadow_instance();
+		if (silhouette_mask_enabled) update_silhouette_instance();
 		// Base already set last (slow) frame; nothing else to do. No debug surface on this path.
 		debug_active_last_frame = false;
 		return;
@@ -1592,6 +1975,7 @@ void SpineSprite3D::build_meshes() {
 	// overlays that should not cast, and we never set shadow overrides on them, so the shadow
 	// instance correctly ignores them (they fall back to their depth_test_disabled debug material).
 	update_shadow_instance();
+	if (silhouette_mask_enabled) update_silhouette_instance();
 	// build_debug_mesh() runs next and may append a PRIMITIVE_LINES surface to this mesh.
 	// Record this frame's debug state so the next frame forces a slow rebuild if debug
 	// was (or becomes) active, keeping surface_cache aligned with the renderable surfaces.
@@ -2027,7 +2411,7 @@ SpineConstant::UpdateMode SpineSprite3D::get_update_mode() {
 
 void SpineSprite3D::set_update_mode(SpineConstant::UpdateMode v) {
 	update_mode = v;
-	set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
+	set_process_internal(update_mode == SpineConstant::UpdateMode_Process || silhouette_mask_enabled);
 	set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
 }
 
@@ -2059,6 +2443,13 @@ void SpineSprite3D::set_z_spacing(float v) {
 	}
 	// Mirror onto the shadow clones (same uniform, set only on a cache MISS in build_meshes()).
 	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("layer_z_spacing", z_spacing);
+	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("layer_z_spacing", z_spacing);
+	}
+	// Mirror onto opted-in custom-material clones so their layering tracks z_spacing at runtime.
+	for (auto &entry : custom_material_cache) {
 		entry.value->set_shader_parameter("layer_z_spacing", z_spacing);
 	}
 	if (skeleton.is_valid()) build_meshes();
@@ -2096,6 +2487,13 @@ void SpineSprite3D::set_billboard(BillboardMode v) {
 	for (auto &entry : shadow_material_cache) {
 		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
 	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
+	}
+	// Mirror onto opted-in custom-material clones so a billboarding custom shader tracks the mode.
+	for (auto &entry : custom_material_cache) {
+		entry.value->set_shader_parameter("billboard_mode", (int) billboard);
+	}
 	// Update debug lines material so overlay stays aligned with the rendered regions.
 	if (debug_lines_material.is_valid()) {
 		debug_lines_material->set_shader_parameter("billboard_mode", (int) billboard);
@@ -2115,6 +2513,12 @@ void SpineSprite3D::set_texture_filter(TextureFilter v) {
 	// rebuilds materials with the new filter. Also clear the 3D-safe texture cache for parity.
 	material_cache.clear();
 	texture_3d_cache.clear();
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_surface_generation++;
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -2128,6 +2532,12 @@ void SpineSprite3D::set_shaded(bool v) {
 	// cache key encodes the shaded bit — clear so flush() picks the correct variants.
 	material_cache.clear();
 	texture_3d_cache.clear();
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_surface_generation++;
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -2142,6 +2552,12 @@ void SpineSprite3D::set_alpha_cut(AlphaCutMode v) {
 	// material cache key, so invalidate the per-instance clones and let build_meshes() rebuild.
 	material_cache.clear();
 	texture_3d_cache.clear();
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_surface_generation++;
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -2157,6 +2573,13 @@ void SpineSprite3D::set_alpha_scissor_threshold(float v) {
 	}
 	// Mirror onto the shadow clones so the cast cutout matches the display silhouette.
 	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
+	}
+	// Mirror onto opted-in custom-material clones.
+	for (auto &entry : custom_material_cache) {
 		entry.value->set_shader_parameter("alpha_scissor_threshold", alpha_scissor_threshold);
 	}
 }
@@ -2177,6 +2600,13 @@ void SpineSprite3D::set_depth_offset(float v) {
 	for (auto &entry : shadow_material_cache) {
 		entry.value->set_shader_parameter("depth_offset", depth_offset);
 	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("depth_offset", depth_offset);
+	}
+	// Mirror onto opted-in custom-material clones so their per-part depth push tracks depth_offset.
+	for (auto &entry : custom_material_cache) {
+		entry.value->set_shader_parameter("depth_offset", depth_offset);
+	}
 }
 
 void SpineSprite3D::set_no_depth_test(bool v) {
@@ -2185,6 +2615,12 @@ void SpineSprite3D::set_no_depth_test(bool v) {
 	// SHADER dimension (appends depth_test_disabled to render_mode); part of the cache key.
 	material_cache.clear();
 	texture_3d_cache.clear();
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_surface_generation++;
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -2198,6 +2634,12 @@ void SpineSprite3D::set_double_sided(bool v) {
 	// SHADER dimension (cull_disabled vs cull_back); part of the cache key.
 	material_cache.clear();
 	texture_3d_cache.clear();
+	custom_material_cache.clear();
+	custom_shader_uniform.clear();
+	silhouette_material_cache.clear();
+	silhouette_surface_materials.clear();
+	silhouette_surface_count = 0;
+	silhouette_surface_generation++;
 	if (skeleton.is_valid()) build_meshes();
 }
 
@@ -2213,6 +2655,13 @@ void SpineSprite3D::set_fixed_size(bool v) {
 	}
 	// Mirror onto the shadow clones so the cast silhouette keeps the same fixed-size scaling.
 	for (auto &entry : shadow_material_cache) {
+		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
+	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
+	}
+	// Mirror onto opted-in custom-material clones.
+	for (auto &entry : custom_material_cache) {
 		entry.value->set_shader_parameter("fixed_size_enabled", fixed_size);
 	}
 }
@@ -2243,10 +2692,134 @@ void SpineSprite3D::set_modulate(const Color &v) {
 	for (auto &entry : shadow_material_cache) {
 		entry.value->set_shader_parameter("modulate_color", modulate);
 	}
+	for (auto &entry : silhouette_material_cache) {
+		entry.value->set_shader_parameter("modulate_color", modulate);
+	}
+	// Mirror onto opted-in custom-material clones so modulate tints/fades a custom material too.
+	for (auto &entry : custom_material_cache) {
+		entry.value->set_shader_parameter("modulate_color", modulate);
+	}
 }
 
 Color SpineSprite3D::get_modulate() {
 	return modulate;
+}
+
+void SpineSprite3D::set_silhouette_mask_enabled(bool v) {
+	if (silhouette_mask_enabled == v) return;
+	silhouette_mask_enabled = v;
+	set_process_internal(update_mode == SpineConstant::UpdateMode_Process || silhouette_mask_enabled);
+	update_silhouette_registration();
+}
+
+bool SpineSprite3D::get_silhouette_mask_enabled() {
+	return silhouette_mask_enabled;
+}
+
+void SpineSprite3D::set_silhouette_mask_half_res(bool v) {
+	silhouette_mask_half_res = v;// applied on the next SpineSilhouetteBuffer::sync()
+}
+
+bool SpineSprite3D::get_silhouette_mask_half_res() {
+	return silhouette_mask_half_res;
+}
+
+// Register/unregister this node with the shared silhouette buffer as the enabled flag flips. Enabling
+// takes a ref (which lazily creates the buffer) + allocates an id and triggers a mesh rebuild so the
+// mask appears; disabling frees this node's mask instance, clears `spine_coverage` off its display
+// clones, and releases the ref (which tears the buffer down when the last node disables).
+void SpineSprite3D::update_silhouette_registration() {
+	SpineSilhouetteBuffer &buf = SpineSilhouetteBuffer::instance();
+	if (silhouette_mask_enabled && !silhouette_registered) {
+		buf.add_ref();
+		silhouette_registered = true;
+		if (silhouette_id == 0) silhouette_id = buf.acquire_id();
+		if (skeleton.is_valid()) build_meshes();
+	} else if (!silhouette_mask_enabled && silhouette_registered) {
+		if (silhouette_instance.is_valid()) {
+			spine_free_rid(silhouette_instance);
+			silhouette_instance = RID();
+		}
+		silhouette_material_cache.clear();
+		silhouette_surface_materials.clear();
+		silhouette_surface_count = 0;
+		silhouette_instance_attached = false;
+		silhouette_applied_mesh = RID();
+		silhouette_applied_scenario = RID();
+		silhouette_applied_surface_generation = 0;
+		silhouette_surface_generation++;
+		RS *rs = RS::get_singleton();
+		for (auto &e : material_cache) rs->material_set_param(e.value->get_rid(), "spine_coverage", RID());
+		for (auto &e : custom_material_cache) rs->material_set_param(e.value->get_rid(), "spine_coverage", RID());
+		silhouette_registered = false;
+		buf.release_ref();
+	}
+}
+
+// Per-frame: sync the shared buffer's camera+size to the active camera, bind this node's mask
+// instance into the buffer scenario, push per-surface mask materials (one atlas page per surface),
+// hide any debug-only surfaces, and expose the buffer texture as `spine_coverage` on display materials.
+void SpineSprite3D::update_silhouette_instance() {
+	if (!silhouette_mask_enabled || !silhouette_registered || !is_inside_tree()) return;
+	SpineSilhouetteBuffer &buf = SpineSilhouetteBuffer::instance();
+	RS *rs = RS::get_singleton();
+
+	auto detach_silhouette = [&]() {
+		if (silhouette_instance.is_valid() && silhouette_instance_attached) {
+			rs->instance_set_scenario(silhouette_instance, RID());
+		}
+		silhouette_instance_attached = false;
+		silhouette_applied_scenario = RID();
+		silhouette_applied_surface_generation = 0;
+	};
+
+	Viewport *vp = get_viewport();
+	if (vp) {
+		Size2 rect = vp->get_visible_rect().size;
+		buf.sync(vp->get_camera_3d(), Size2i((int) rect.x, (int) rect.y), silhouette_mask_half_res,
+				Engine::get_singleton()->get_process_frames());
+	}
+
+	RID scenario = buf.get_scenario();
+	if (!scenario.is_valid() || !mesh.is_valid()) {
+		detach_silhouette();
+		return;
+	}
+
+	const bool mesh_changed = (silhouette_applied_mesh != mesh);
+	const bool scenario_changed = (silhouette_applied_scenario != scenario);
+	const bool surfaces_changed = (silhouette_applied_surface_generation != silhouette_surface_generation);
+	const bool reattaching = !silhouette_instance_attached || mesh_changed || scenario_changed;
+
+	if (!silhouette_instance.is_valid()) silhouette_instance = rs->instance_create();
+	if (mesh_changed || !silhouette_instance_attached) rs->instance_set_base(silhouette_instance, mesh);
+	if (scenario_changed || !silhouette_instance_attached) rs->instance_set_scenario(silhouette_instance, scenario);
+	if (reattaching) {
+		rs->instance_set_transform(silhouette_instance, get_global_transform());
+		rs->instance_geometry_set_material_override(silhouette_instance, RID());
+	}
+
+	int mesh_surface_count = rs->mesh_get_surface_count(mesh);
+	if (surfaces_changed || reattaching) {
+		for (int s = 0; s < silhouette_surface_count && s < mesh_surface_count; s++) {
+			rs->instance_set_surface_override_material(silhouette_instance, s, silhouette_surface_materials[s]);
+		}
+		silhouette_applied_surface_generation = silhouette_surface_generation;
+	}
+	if (mesh_surface_count > silhouette_surface_count) {
+		RID discard = buf.get_discard_material()->get_rid();
+		for (int s = silhouette_surface_count; s < mesh_surface_count; s++) {
+			rs->instance_set_surface_override_material(silhouette_instance, s, discard);
+		}
+	}
+
+	silhouette_applied_mesh = mesh;
+	silhouette_applied_scenario = scenario;
+	silhouette_instance_attached = true;
+
+	RID cov = buf.get_texture();
+	for (auto &e : material_cache) rs->material_set_param(e.value->get_rid(), "spine_coverage", cov);
+	for (auto &e : custom_material_cache) rs->material_set_param(e.value->get_rid(), "spine_coverage", cov);
 }
 
 void SpineSprite3D::set_normal_material(Ref<Material> v) {
@@ -2290,6 +2863,7 @@ Ref<Material> SpineSprite3D::get_screen_material() {
 
 void SpineSprite3D::clear_statics() {
 	SpineSprite3DStatics::clear();
+	SpineSilhouetteBuffer::shutdown();
 }
 
 // ---------------------------------------------------------------------------

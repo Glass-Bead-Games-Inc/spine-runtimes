@@ -153,6 +153,7 @@ mesh = SubResource("PlaneMesh_floor")
 [node name="Spineboy" type="SpineSprite3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0, 0)
 skeleton_data_res = ExtResource("2_spineboy")
+depth_offset = 0.001
 
 [node name="SpineAnimationTrack" type="SpineAnimationTrack" parent="Spineboy"]
 track_index = 0
@@ -165,6 +166,7 @@ mix_duration = 0.1
 [node name="Raptor" type="SpineSprite3D" parent="."]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 0)
 skeleton_data_res = ExtResource("3_raptor")
+depth_offset = 0.001
 
 [node name="SpineAnimationTrack" type="SpineAnimationTrack" parent="Raptor"]
 track_index = 0

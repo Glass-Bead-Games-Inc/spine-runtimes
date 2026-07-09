@@ -127,6 +127,20 @@ protected:
 	// handed to instance_set_surface_override_material stay valid.
 	HashMap<uint64_t, Ref<ShaderMaterial>> shadow_material_cache;
 
+	// Optional silhouette mask: a mask RS instance registered into the shared SpineSilhouetteBuffer's
+	// scenario (reuses `mesh` with per-surface ID-mask materials), plus its per-(filter,texture) mask
+	// material clones. All RID()/empty unless silhouette_mask_enabled. See SpineSilhouetteBuffer (.cpp).
+	RID silhouette_instance;
+	HashMap<uint64_t, Ref<ShaderMaterial>> silhouette_material_cache;
+	bool silhouette_registered = false;// this node currently holds a ref on the shared buffer
+	int silhouette_surface_count = 0;
+	Vector<RID> silhouette_surface_materials;
+	bool silhouette_instance_attached = false;
+	RID silhouette_applied_mesh;
+	RID silhouette_applied_scenario;
+	uint32_t silhouette_surface_generation = 0;
+	uint32_t silhouette_applied_surface_generation = 0;
+
 	// Tracks whether the node is currently inside a World3D. Set from NOTIFICATION_ENTER_WORLD /
 	// NOTIFICATION_EXIT_WORLD. CRITICAL: Node3D::get_world_3d() prints an error and returns an
 	// invalid ref whenever the node is NOT inside the world, and is_inside_world() is not exposed
@@ -185,6 +199,14 @@ protected:
 	int render_priority;          // applied via Material::set_render_priority on the clones
 	Color modulate;               // uniform: global tint multiplied into ALBEDO/ALPHA
 
+	// Optional silhouette mask (OFF by default -> nothing is rendered, no buffer created). When enabled,
+	// this node renders its ID-coded coverage into a shared screen-space buffer that tracks the active
+	// camera, exposing a `spine_coverage` texture + per-material `spine_object_id` so custom shaders can
+	// sample the whole-character silhouette (e.g. for rim light). See SpineSilhouetteBuffer in the .cpp.
+	bool silhouette_mask_enabled;
+	bool silhouette_mask_half_res;// render the shared coverage buffer at half the main viewport resolution
+	int silhouette_id;            // this node's non-zero id in the shared coverage buffer (0 = unregistered)
+
 	// Task 8: per-blend-mode custom material overrides
 	Ref<Material> normal_material;
 	Ref<Material> additive_material;
@@ -242,6 +264,18 @@ protected:
 	// detect-3D callback instead and never populates this. Cleared wherever material_cache is.
 	HashMap<uint64_t, Ref<Texture2D>> texture_3d_cache;
 
+	// Custom-material texture auto-bind: opted-in clones only, keyed by hash(custom material RID id,
+	// texture RID id). A user ShaderMaterial that declares a "spine_texture" or "albedo_texture"
+	// sampler2D uniform opts into having the atlas texture (and the standard SpineSprite3D uniforms)
+	// bound automatically: flush() stores a per-(material,texture) CLONE here with those set, leaving
+	// the rest of the material as authored. Holds ONLY clones we own (never the user's original), so
+	// the live uniform setters can safely update them. Cleared wherever material_cache is.
+	HashMap<uint64_t, Ref<ShaderMaterial>> custom_material_cache;
+	// Opt-in detection memo: custom shader RID id -> the recognized texture-uniform name it declares
+	// ("spine_texture"/"albedo_texture"), or StringName() if it declares neither. Lets flush() decide
+	// opt-in without re-scanning the shader's uniform list every frame. Cleared with custom_material_cache.
+	HashMap<uint64_t, StringName> custom_shader_uniform;
+
 	// Fix #10: per-surface cache for the build_meshes() fast path. When the surface
 	// topology (count, per-surface vertex/index counts, index contents and chosen
 	// material RID) is identical to the previous frame, build_meshes() updates the
@@ -287,6 +321,10 @@ protected:
 	// inside a world: it accesses get_world_3d() ONLY when inside_world is true (see the flag above).
 	// Called from both build_meshes() paths and from NOTIFICATION_ENTER_WORLD.
 	void update_shadow_instance();
+	// Register/unregister this node with the shared silhouette buffer per silhouette_mask_enabled, and
+	// (re)build/refresh the mask instance + expose `spine_coverage` on the display materials.
+	void update_silhouette_registration();
+	void update_silhouette_instance();
 
 	// Fix #2: return a texture safe to use in a 3D draw without triggering Godot's
 	// "texture used in 3D" auto-reimport (which adds mipmaps + VRAM compression and
@@ -295,6 +333,12 @@ protected:
 	// Input is a Ref<Texture> (the SpineRendererObject member type); the returned
 	// Ref<Texture2D> is what the shader sampler binds to.
 	Ref<Texture2D> get_3d_safe_texture(const Ref<Texture> &tex);
+
+	// Set the standard SpineSprite3D uniforms (billboard_mode, layer_z_spacing, depth_offset,
+	// modulate_color, alpha_scissor_threshold, fixed_size_enabled) on an opted-in custom-material
+	// clone, so a custom shader that declares them (e.g. via spine_sprite_3d.gdshaderinc) lays out
+	// and tints like the built-in material. Harmless for uniforms the shader does not declare.
+	void apply_custom_material_uniforms(const Ref<ShaderMaterial> &mat) const;
 
 public:
 	SpineSprite3D();
@@ -359,6 +403,10 @@ public:
 	int get_render_priority();
 	void set_modulate(const Color &v);
 	Color get_modulate();
+	void set_silhouette_mask_enabled(bool v);
+	bool get_silhouette_mask_enabled();
+	void set_silhouette_mask_half_res(bool v);
+	bool get_silhouette_mask_half_res();
 
 	// Task 8: per-blend-mode custom material overrides
 	void set_normal_material(Ref<Material> v);
