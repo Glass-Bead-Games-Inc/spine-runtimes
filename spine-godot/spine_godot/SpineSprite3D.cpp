@@ -66,7 +66,7 @@
 #include "scene/resources/mesh.h"
 #include "scene/resources/image_texture.h"// Fix #2: ImageTexture / Texture2D (3D-safe copy path is extension-only, kept for parity)
 #include "core/config/engine.h"           // Engine::get_singleton(); not transitively included in Godot 4.7
-#include "scene/3d/camera_3d.h"            // silhouette buffer: active camera projection/transform
+#include "scene/3d/camera_3d.h"           // silhouette buffer: active camera projection/transform
 #include "scene/main/viewport.h"          // silhouette buffer: get_viewport()->get_camera_3d()
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
@@ -528,37 +528,40 @@ static String spine_silhouette_mask_shader_source(SpineSprite3D::TextureFilter f
 	return String("shader_type spatial;\n"
 				  "render_mode unshaded, cull_disabled, depth_draw_opaque, shadows_disabled;\n"
 				  "uniform sampler2D albedo_tex : source_color, ") +
-		   filter_hint +
-		   ";\n"
-		   "uniform float spine_object_id = 0.0;\n"
-		   "uniform int billboard_mode = 0;\n"
-		   "uniform bool fixed_size_enabled = false;\n"
-		   "uniform vec4 modulate_color = vec4(1.0);\n"
-		   "uniform float layer_z_spacing = 0.0;\n"
-		   "uniform float depth_offset = 0.0;\n"
-		   "uniform float alpha_scissor_threshold = 0.5;\n"
-		   "void vertex() {\n"
-		   "    if (billboard_mode == 1) {\n"
-		   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);\n"
-		   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-		   "    } else if (billboard_mode == 2) {\n"
-		   "        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0), vec4(0.0,1.0,0.0,0.0), vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0), MODEL_MATRIX[3]);\n"
-		   "        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
-		   "    }\n"
-		   "    if (fixed_size_enabled) {\n"
-		   "        if (PROJECTION_MATRIX[3][3] != 0.0) { float sc = abs(1.0 / (2.0 * PROJECTION_MATRIX[1][1])) * 2.0; MODELVIEW_MATRIX[0] *= sc; MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
-		   "        else { float sc = -(MODELVIEW_MATRIX)[3].z; MODELVIEW_MATRIX[0] *= sc; MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
-		   "    }\n"
-		   "    float _draw_index = VERTEX.z;\n"
-		   "    VERTEX.z *= layer_z_spacing;\n"
-		   "    if (depth_offset != 0.0) { vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0); _vpos.z -= _draw_index * depth_offset; POSITION = PROJECTION_MATRIX * _vpos; }\n"
-		   "}\n"
-		   "void fragment() {\n"
-		   "    float a = texture(albedo_tex, UV).a * COLOR.a * modulate_color.a;\n"
-		   "    ALBEDO = vec3(spine_object_id);\n"
-		   "    ALPHA = a;\n"
-		   "    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n"
-		   "}\n";
+		filter_hint +
+		";\n"
+		"uniform float spine_object_id = 0.0;\n"
+		"uniform int billboard_mode = 0;\n"
+		"uniform bool fixed_size_enabled = false;\n"
+		"uniform vec4 modulate_color = vec4(1.0);\n"
+		"uniform float layer_z_spacing = 0.0;\n"
+		"uniform float depth_offset = 0.0;\n"
+		"uniform float alpha_scissor_threshold = 0.5;\n"
+		"void vertex() {\n"
+		"    if (billboard_mode == 1) {\n"
+		"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);\n"
+		"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+		"    } else if (billboard_mode == 2) {\n"
+		"        MODELVIEW_MATRIX = VIEW_MATRIX * mat4(vec4(normalize(cross(vec3(0.0,1.0,0.0), INV_VIEW_MATRIX[2].xyz)), 0.0), "
+		"vec4(0.0,1.0,0.0,0.0), vec4(normalize(cross(INV_VIEW_MATRIX[0].xyz, vec3(0.0,1.0,0.0))), 0.0), MODEL_MATRIX[3]);\n"
+		"        MODELVIEW_NORMAL_MATRIX = mat3(MODELVIEW_MATRIX);\n"
+		"    }\n"
+		"    if (fixed_size_enabled) {\n"
+		"        if (PROJECTION_MATRIX[3][3] != 0.0) { float sc = abs(1.0 / (2.0 * PROJECTION_MATRIX[1][1])) * 2.0; MODELVIEW_MATRIX[0] *= sc; "
+		"MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
+		"        else { float sc = -(MODELVIEW_MATRIX)[3].z; MODELVIEW_MATRIX[0] *= sc; MODELVIEW_MATRIX[1] *= sc; MODELVIEW_MATRIX[2] *= sc; }\n"
+		"    }\n"
+		"    float _draw_index = VERTEX.z;\n"
+		"    VERTEX.z *= layer_z_spacing;\n"
+		"    if (depth_offset != 0.0) { vec4 _vpos = MODELVIEW_MATRIX * vec4(VERTEX, 1.0); _vpos.z -= _draw_index * depth_offset; POSITION = "
+		"PROJECTION_MATRIX * _vpos; }\n"
+		"}\n"
+		"void fragment() {\n"
+		"    float a = texture(albedo_tex, UV).a * COLOR.a * modulate_color.a;\n"
+		"    ALBEDO = vec3(spine_object_id);\n"
+		"    ALPHA = a;\n"
+		"    ALPHA_SCISSOR_THRESHOLD = alpha_scissor_threshold;\n"
+		"}\n";
 }
 
 struct SpineSilhouetteBuffer {
@@ -580,8 +583,12 @@ public:
 		return *_instance;
 	}
 
-	RID get_scenario() const { return scenario; }
-	RID get_texture() const { return viewport.is_valid() ? RS::get_singleton()->viewport_get_texture(viewport) : RID(); }
+	RID get_scenario() const {
+		return scenario;
+	}
+	RID get_texture() const {
+		return viewport.is_valid() ? RS::get_singleton()->viewport_get_texture(viewport) : RID();
+	}
 
 	Ref<Shader> get_mask_shader(SpineSprite3D::TextureFilter filter) {
 		int k = (int) filter & 0x3;
@@ -857,10 +864,8 @@ SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), skeleton_clipper(new spine::SkeletonClipping()), modified_bones(false),
 	  pixel_size(0.01f), z_spacing(0.0f), flip_h(false), flip_v(false), billboard(BILLBOARD_DISABLED), texture_filter(TEXTURE_FILTER_LINEAR),
 	  shaded(false), alpha_cut(ALPHA_CUT_DISCARD), alpha_scissor_threshold(0.5f), depth_offset(0.0f), no_depth_test(false), double_sided(true),
-	  fixed_size(false), render_priority(0), modulate(Color(1, 1, 1, 1)),
-	  silhouette_mask_enabled(false), silhouette_mask_half_res(true), silhouette_id(0),
-	  preview_skin("Default"), preview_animation("-- Empty --"),
-	  preview_frame(false), preview_time(0),
+	  fixed_size(false), render_priority(0), modulate(Color(1, 1, 1, 1)), silhouette_mask_enabled(false), silhouette_mask_half_res(true),
+	  silhouette_id(0), preview_skin("Default"), preview_animation("-- Empty --"), preview_frame(false), preview_time(0),
 	  // Task 11: debug overlay defaults (same as SpineSprite 2D)
 	  debug_root(false), debug_root_color(Color(1, 1, 1, 0.5f)), debug_bones(false), debug_bones_color(Color(1, 1, 0, 0.5f)),
 	  debug_bones_thickness(5.0f), debug_regions(false), debug_regions_color(Color(0, 0, 1, 0.5f)), debug_meshes(false),
@@ -1030,8 +1035,10 @@ void SpineSprite3D::_notification(int what) {
 			break;
 		}
 		case NOTIFICATION_INTERNAL_PROCESS: {
-			if (update_mode == SpineConstant::UpdateMode_Process) update_skeleton(get_process_delta_time());
-			else if (silhouette_mask_enabled) update_silhouette_instance();
+			if (update_mode == SpineConstant::UpdateMode_Process)
+				update_skeleton(get_process_delta_time());
+			else if (silhouette_mask_enabled)
+				update_silhouette_instance();
 			break;
 		}
 		case NOTIFICATION_INTERNAL_PHYSICS_PROCESS: {
@@ -1121,8 +1128,8 @@ struct SpineSprite3DLocalSurface {
 	Vector<int> indices;
 #endif
 	bool shaded = false;
-	RID material;       // resolved DISPLAY material RID for this surface (RID() if none assigned)
-	RID shadow_material;// resolved SHADOW caster material RID for this surface (RID() if none / custom material)
+	RID material;           // resolved DISPLAY material RID for this surface (RID() if none assigned)
+	RID shadow_material;    // resolved SHADOW caster material RID for this surface (RID() if none / custom material)
 	RID silhouette_material;// resolved silhouette mask material RID for this surface
 };
 
@@ -1416,8 +1423,7 @@ void SpineSprite3D::build_meshes() {
 		RID surface_material;
 		RID surface_shadow_material;// SHADOW caster override for this surface (auto-generated surfaces only)
 		RID surface_silhouette_material;
-		uint64_t current_tex_id = (current_ro && current_ro->texture.is_valid()) ?
-				(uint64_t) current_ro->texture->get_rid().get_id() : 0ull;
+		uint64_t current_tex_id = (current_ro && current_ro->texture.is_valid()) ? (uint64_t) current_ro->texture->get_rid().get_id() : 0ull;
 		if (custom_mat.is_valid()) {
 			// A custom ShaderMaterial may OPT IN to automatic atlas binding by declaring a
 			// "spine_texture" or "albedo_texture" sampler2D uniform (spatial shaders have no
@@ -1549,8 +1555,7 @@ void SpineSprite3D::build_meshes() {
 			// node casts; assigned as a surface override on the separate SHADOWS_ONLY instance below.
 			if (casts) surface_shadow_material = resolve_shadow_rid(current_ro->texture, tex_id);
 		}
-		if (current_ro && current_ro->texture.is_valid())
-			surface_silhouette_material = resolve_silhouette_rid(current_ro->texture, current_tex_id);
+		if (current_ro && current_ro->texture.is_valid()) surface_silhouette_material = resolve_silhouette_rid(current_ro->texture, current_tex_id);
 
 		SpineSprite3DLocalSurface ls;
 		ls.positions = scratch_positions;
@@ -2776,8 +2781,7 @@ void SpineSprite3D::update_silhouette_instance() {
 	Viewport *vp = get_viewport();
 	if (vp) {
 		Size2 rect = vp->get_visible_rect().size;
-		buf.sync(vp->get_camera_3d(), Size2i((int) rect.x, (int) rect.y), silhouette_mask_half_res,
-				Engine::get_singleton()->get_process_frames());
+		buf.sync(vp->get_camera_3d(), Size2i((int) rect.x, (int) rect.y), silhouette_mask_half_res, Engine::get_singleton()->get_process_frames());
 	}
 
 	RID scenario = buf.get_scenario();
