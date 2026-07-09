@@ -85,6 +85,9 @@ cp spine_godot_extension.gdextension example-v4-extension/bin
 # Ship the editor icons next to the .gdextension (referenced relatively in its [icons] section)
 mkdir -p example-v4-extension/bin/icons
 cp spine_godot/icons/Spine*.svg example-v4-extension/bin/icons/
+# Ship the SpineSprite3D custom-material shader include next to the .gdextension so projects can
+# #include "res://addons/spine_godot/spine_sprite_3d.gdshaderinc" from their own custom materials.
+cp spine_godot/spine_sprite_3d.gdshaderinc example-v4-extension/bin/
 rm -rf spine_godot/spine-cpp
 cp -r ../spine-cpp spine_godot
 

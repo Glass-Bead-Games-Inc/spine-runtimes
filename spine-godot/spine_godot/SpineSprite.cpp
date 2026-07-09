@@ -800,10 +800,15 @@ static void update_preview_animation(SpineSprite *sprite, const String &skin, co
 	}
 
 	auto track_entry = sprite->get_animation_state()->set_animation(animation, true, 0);
-	track_entry->set_mix_duration(0);
-	if (frame) {
-		track_entry->set_time_scale(0);
-		track_entry->set_track_time(time);
+	// set_animation() returns null when the animation no longer exists (e.g. preview_animation was
+	// set, then the Spine source was changed/re-exported without it). Guard before use so a stale
+	// preview name prints the "Can not find animation" warning instead of dereferencing null (crash).
+	if (track_entry.is_valid()) {
+		track_entry->set_mix_duration(0);
+		if (frame) {
+			track_entry->set_time_scale(0);
+			track_entry->set_track_time(time);
+		}
 	}
 }
 

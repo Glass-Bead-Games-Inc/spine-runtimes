@@ -33,6 +33,7 @@ mesh = SubResource("2_boxmesh")
 
 [node name="SpineboyFreeOriented" type="SpineSprite3D" parent="." unique_id=314158241]
 skeleton_data_res = ExtResource("2_data")
+depth_offset = 0.001
 preview_skin = "default"
 preview_animation = "walk"
 preview_frame = true
@@ -48,6 +49,7 @@ mesh = SubResource("3_cubemesh")
 
 [node name="SpineboyBillboard" type="SpineSprite3D" parent="." unique_id=527343048]
 skeleton_data_res = ExtResource("2_data")
+depth_offset = 0.001
 billboard = 1
 preview_skin = "Default"
 preview_animation = "-- Empty --"

@@ -33,10 +33,18 @@
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
 void SpineBoneNode3D::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_on_before_world_transforms_change", "spine_sprite"), &SpineBoneNode3D::on_before_world_transforms_change);
 	ClassDB::bind_method(D_METHOD("_on_world_transforms_changed", "spine_sprite"), &SpineBoneNode3D::on_world_transforms_changed);
 	ClassDB::bind_method(D_METHOD("set_bone_name", "bone_name"), &SpineBoneNode3D::set_bone_name);
 	ClassDB::bind_method(D_METHOD("get_bone_name"), &SpineBoneNode3D::get_bone_name);
+	ClassDB::bind_method(D_METHOD("set_bone_mode", "bone_mode"), &SpineBoneNode3D::set_bone_mode);
+	ClassDB::bind_method(D_METHOD("get_bone_mode"), &SpineBoneNode3D::get_bone_mode);
+	ClassDB::bind_method(D_METHOD("set_enabled", "enabled"), &SpineBoneNode3D::set_enabled);
+	ClassDB::bind_method(D_METHOD("get_enabled"), &SpineBoneNode3D::get_enabled);
 	ClassDB::bind_method(D_METHOD("get_bone_index"), &SpineBoneNode3D::get_bone_index);
+
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "bone_mode", PROPERTY_HINT_ENUM, "Follow,Drive"), "set_bone_mode", "get_bone_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "enabled"), "set_enabled", "get_enabled");
 }
 
 void SpineBoneNode3D::_notification(int what) {
@@ -45,8 +53,10 @@ void SpineBoneNode3D::_notification(int what) {
 			SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
 			if (sprite) {
 #if VERSION_MAJOR > 3
+				sprite->connect(SNAME("before_world_transforms_change"), callable_mp(this, &SpineBoneNode3D::on_before_world_transforms_change));
 				sprite->connect(SNAME("world_transforms_changed"), callable_mp(this, &SpineBoneNode3D::on_world_transforms_changed));
 #else
+				sprite->connect(SNAME("before_world_transforms_change"), this, SNAME("_on_before_world_transforms_change"));
 				sprite->connect(SNAME("world_transforms_changed"), this, SNAME("_on_world_transforms_changed"));
 #endif
 				update_transform(sprite);
@@ -60,8 +70,10 @@ void SpineBoneNode3D::_notification(int what) {
 			SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
 			if (sprite) {
 #if VERSION_MAJOR > 3
+				sprite->disconnect(SNAME("before_world_transforms_change"), callable_mp(this, &SpineBoneNode3D::on_before_world_transforms_change));
 				sprite->disconnect(SNAME("world_transforms_changed"), callable_mp(this, &SpineBoneNode3D::on_world_transforms_changed));
 #else
+				sprite->disconnect(SNAME("before_world_transforms_change"), this, SNAME("_on_before_world_transforms_change"));
 				sprite->disconnect(SNAME("world_transforms_changed"), this, SNAME("_on_world_transforms_changed"));
 #endif
 			}
@@ -117,13 +129,19 @@ bool SpineBoneNode3D::_set(const StringName &property, const Variant &value) {
 	return false;
 }
 
+void SpineBoneNode3D::on_before_world_transforms_change(const Variant &_sprite) {
+	if (bone_mode != SpineConstant::BoneMode_Drive) return;
+	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(_sprite.operator Object *());
+	update_transform(sprite);
+}
+
 void SpineBoneNode3D::on_world_transforms_changed(const Variant &_sprite) {
 	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(_sprite.operator Object *());
 	update_transform(sprite);
 }
 
 void SpineBoneNode3D::update_transform(SpineSprite3D *sprite) {
-	if (!is_visible_in_tree()) return;
+	if (!enabled) return;
 	if (!sprite) return;
 	if (!sprite->get_skeleton().is_valid() || !sprite->get_skeleton()->get_spine_object()) return;
 	auto bone_ref = sprite->get_skeleton()->find_bone(bone_name);
@@ -134,8 +152,14 @@ void SpineBoneNode3D::update_transform(SpineSprite3D *sprite) {
 	spine::Bone *bone = bone_ref->get_spine_object();
 	if (!bone) return;
 	bone_index = bone->getData().getIndex();
-	// Set local transform (node is a child of the sprite, so local == sprite-space)
-	set_transform(sprite->bone_to_transform3d(bone, 0.0f));
+	if (bone_mode == SpineConstant::BoneMode_Drive) {
+		// DRIVE: write this node's transform back into the bone (node -> bone).
+		sprite->set_global_bone_transform_3d(bone_name, get_global_transform());
+	} else {
+		// FOLLOW: position this node at the bone (bone -> node). Skip if hidden.
+		if (!is_visible_in_tree()) return;
+		set_transform(sprite->bone_to_transform3d(bone, 0.0f));
+	}
 }
 
 void SpineBoneNode3D::set_bone_name(const String &_bone_name) {
@@ -144,6 +168,26 @@ void SpineBoneNode3D::set_bone_name(const String &_bone_name) {
 
 String SpineBoneNode3D::get_bone_name() {
 	return bone_name;
+}
+
+void SpineBoneNode3D::set_bone_mode(SpineConstant::BoneMode v) {
+	if (bone_mode != v) {
+		bone_mode = v;
+		update_transform(Object::cast_to<SpineSprite3D>(get_parent()));
+	}
+}
+
+SpineConstant::BoneMode SpineBoneNode3D::get_bone_mode() {
+	return bone_mode;
+}
+
+void SpineBoneNode3D::set_enabled(bool v) {
+	enabled = v;
+	update_transform(Object::cast_to<SpineSprite3D>(get_parent()));
+}
+
+bool SpineBoneNode3D::get_enabled() {
+	return enabled;
 }
 
 #endif// _3D_DISABLED

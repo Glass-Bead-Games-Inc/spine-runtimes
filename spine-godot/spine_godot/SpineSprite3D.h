@@ -92,6 +92,16 @@ public:
 		TEXTURE_FILTER_LINEAR_MIPMAP = 3,
 	};
 
+	// Mirrors Godot's SpriteBase3D::AlphaCutMode. Controls how the DISPLAY shader writes
+	// transparency vs. opaque depth so the sprite can interact with the depth buffer
+	// (fog, water, scene occlusion) like a Sprite3D. See build_shader_source().
+	enum AlphaCutMode {
+		ALPHA_CUT_DISABLED = 0,      // alpha blend, no opaque depth write
+		ALPHA_CUT_DISCARD = 1,       // scissor: discard below threshold, kept pixels write opaque depth (hard edges)
+		ALPHA_CUT_OPAQUE_PREPASS = 2,// depth_prepass_alpha: writes opaque depth, soft edges
+		ALPHA_CUT_HASH = 3,          // alpha-hash: depth_draw_opaque + ALPHA_HASH_SCALE (opaque pass, dithered transparency)
+	};
+
 protected:
 	Ref<SpineSkeletonDataResource> skeleton_data_res;
 	Ref<SpineSkeleton> skeleton;
@@ -102,6 +112,63 @@ protected:
 	bool modified_bones;
 
 	RID mesh;// owned RS mesh, created in Task 2
+
+	// Shadow casting is decoupled from display. The display path (set_base(mesh)) uses
+	// depth_draw_opaque/shadows_disabled materials so the opaque pixels of overlapping coplanar
+	// parts share the same depth and layer by draw order without z-fighting; it casts nothing.
+	// This SEPARATE RS instance shares the SAME mesh RID but
+	// renders into shadow maps ONLY (SHADOW_CASTING_SETTING_SHADOWS_ONLY) with per-surface
+	// alpha-cutout (depth_prepass_alpha) override materials, so it still casts a shaped shadow.
+	// Created lazily (only when cast_shadow != Off and the node is in a world), freed in the
+	// destructor; its scenario is detached on EXIT_WORLD and re-set on ENTER_WORLD / build_meshes.
+	RID shadow_instance;
+	// Per-(texture,filter) shadow material clones, parallel to material_cache. The shadow shader is
+	// pma-independent, so pma is NOT part of the key. Keeps the ShaderMaterial Refs alive so the RIDs
+	// handed to instance_set_surface_override_material stay valid.
+	HashMap<uint64_t, Ref<ShaderMaterial>> shadow_material_cache;
+
+	// Optional silhouette mask: a mask RS instance registered into the shared SpineSilhouetteBuffer's
+	// scenario (reuses `mesh` with per-surface ID-mask materials), plus its per-(filter,texture) mask
+	// material clones. All RID()/empty unless silhouette_mask_enabled. See SpineSilhouetteBuffer (.cpp).
+	RID silhouette_instance;
+	HashMap<uint64_t, Ref<ShaderMaterial>> silhouette_material_cache;
+	bool silhouette_registered = false;// this node currently holds a ref on the shared buffer
+	int silhouette_surface_count = 0;
+	Vector<RID> silhouette_surface_materials;
+	bool silhouette_instance_attached = false;
+	RID silhouette_applied_mesh;
+	RID silhouette_applied_scenario;
+	uint32_t silhouette_surface_generation = 0;
+	uint32_t silhouette_applied_surface_generation = 0;
+
+	// Tracks whether the node is currently inside a World3D. Set from NOTIFICATION_ENTER_WORLD /
+	// NOTIFICATION_EXIT_WORLD. CRITICAL: Node3D::get_world_3d() prints an error and returns an
+	// invalid ref whenever the node is NOT inside the world, and is_inside_world() is not exposed
+	// in godot-cpp (the extension build). So get_world_3d() must NEVER be called unless this flag is
+	// true; update_shadow_instance() gates its entire get_world_3d() access behind it.
+	bool inside_world = false;
+	// Persisted shadow-caster surface state so update_shadow_instance() can run OUTSIDE build_meshes()
+	// (specifically from NOTIFICATION_ENTER_WORLD, where the build-local surface_count/local_surfaces
+	// arrays are unavailable). Populated by build_meshes() alongside the per-surface shadow materials;
+	// cleared wherever shadow_material_cache is cleared so stale surface RIDs are never reused against
+	// a freshly rebuilt mesh. shadow_surface_materials holds one shadow-material RID per mesh surface
+	// (RID() for custom-material/no-shadow surfaces).
+	int shadow_surface_count = 0;
+	Vector<RID> shadow_surface_materials;
+
+	// Fix (shadow #5): cache of the last STATE applied to the shadow instance by update_shadow_instance(),
+	// so the per-frame fast path (which calls it every animated frame) can skip the heavy re-bind +
+	// per-surface override loop + cast-setting + scenario work when nothing relevant changed. Only the
+	// values that drive that work are tracked: the bound mesh, the scenario, whether we are casting, and
+	// a generation counter bumped whenever the per-surface shadow override set is rewritten. The
+	// per-frame instance_set_transform is dropped entirely (NOTIFICATION_TRANSFORM_CHANGED keeps the
+	// instance transform synced); the transform is pushed only on (re)attach inside update_shadow_instance.
+	// All-zero defaults are deliberately "never applied" so the first call always does the full bind.
+	bool shadow_instance_attached = false;         // whether the heavy bind/overrides were last applied (vs detached)
+	RID shadow_applied_mesh;                       // mesh RID last bound to the shadow instance
+	RID shadow_applied_scenario;                   // scenario RID last set on the shadow instance
+	uint32_t shadow_surface_generation = 0;        // bumped by build_meshes() when shadow_surface_materials changes
+	uint32_t shadow_applied_surface_generation = 0;// generation last pushed via the override loop
 
 	// Task 2: rendering parameters (exposed as properties in Task 3)
 	float pixel_size;
@@ -119,6 +186,26 @@ protected:
 
 	// Task 6: shaded mode
 	bool shaded;
+
+	// Sprite3D-style rendering controls. The four shader-affecting flags (alpha_cut,
+	// no_depth_test, double_sided, and the shaded/filter/blend/pma already present) are
+	// threaded into the display material cache key; the rest are uniforms set per-clone.
+	AlphaCutMode alpha_cut;       // shader dimension (see build_shader_source)
+	float alpha_scissor_threshold;// uniform; only meaningful for ALPHA_CUT_DISCARD
+	float depth_offset;           // uniform: per-part view-independent clip-space depth step (0 = off)
+	bool no_depth_test;           // shader dimension: appends depth_test_disabled
+	bool double_sided;            // shader dimension: cull_disabled (true) vs cull_back (false); default true
+	bool fixed_size;              // uniform: keep constant screen size regardless of distance
+	int render_priority;          // applied via Material::set_render_priority on the clones
+	Color modulate;               // uniform: global tint multiplied into ALBEDO/ALPHA
+
+	// Optional silhouette mask (OFF by default -> nothing is rendered, no buffer created). When enabled,
+	// this node renders its ID-coded coverage into a shared screen-space buffer that tracks the active
+	// camera, exposing a `spine_coverage` texture + per-material `spine_object_id` so custom shaders can
+	// sample the whole-character silhouette (e.g. for rim light). See SpineSilhouetteBuffer in the .cpp.
+	bool silhouette_mask_enabled;
+	bool silhouette_mask_half_res;// render the shared coverage buffer at half the main viewport resolution
+	int silhouette_id;            // this node's non-zero id in the shared coverage buffer (0 = unregistered)
 
 	// Task 8: per-blend-mode custom material overrides
 	Ref<Material> normal_material;
@@ -177,6 +264,18 @@ protected:
 	// detect-3D callback instead and never populates this. Cleared wherever material_cache is.
 	HashMap<uint64_t, Ref<Texture2D>> texture_3d_cache;
 
+	// Custom-material texture auto-bind: opted-in clones only, keyed by hash(custom material RID id,
+	// texture RID id). A user ShaderMaterial that declares a "spine_texture" or "albedo_texture"
+	// sampler2D uniform opts into having the atlas texture (and the standard SpineSprite3D uniforms)
+	// bound automatically: flush() stores a per-(material,texture) CLONE here with those set, leaving
+	// the rest of the material as authored. Holds ONLY clones we own (never the user's original), so
+	// the live uniform setters can safely update them. Cleared wherever material_cache is.
+	HashMap<uint64_t, Ref<ShaderMaterial>> custom_material_cache;
+	// Opt-in detection memo: custom shader RID id -> the recognized texture-uniform name it declares
+	// ("spine_texture"/"albedo_texture"), or StringName() if it declares neither. Lets flush() decide
+	// opt-in without re-scanning the shader's uniform list every frame. Cleared with custom_material_cache.
+	HashMap<uint64_t, StringName> custom_shader_uniform;
+
 	// Fix #10: per-surface cache for the build_meshes() fast path. When the surface
 	// topology (count, per-surface vertex/index counts, index contents and chosen
 	// material RID) is identical to the previous frame, build_meshes() updates the
@@ -217,6 +316,16 @@ protected:
 	void build_meshes();
 	void build_debug_mesh();// Task 11: rebuild PRIMITIVE_LINES debug overlay from skeleton geometry
 
+	// Shadow caster instance management. Re-points/refreshes (or detaches) the SEPARATE shadows-only
+	// RS instance from the persisted shadow_surface_* state. Safe to call whether or not the node is
+	// inside a world: it accesses get_world_3d() ONLY when inside_world is true (see the flag above).
+	// Called from both build_meshes() paths and from NOTIFICATION_ENTER_WORLD.
+	void update_shadow_instance();
+	// Register/unregister this node with the shared silhouette buffer per silhouette_mask_enabled, and
+	// (re)build/refresh the mask instance + expose `spine_coverage` on the display materials.
+	void update_silhouette_registration();
+	void update_silhouette_instance();
+
 	// Fix #2: return a texture safe to use in a 3D draw without triggering Godot's
 	// "texture used in 3D" auto-reimport (which adds mipmaps + VRAM compression and
 	// corrupts packed atlases). Module build clears the RS detect-3D callback; the
@@ -224,6 +333,12 @@ protected:
 	// Input is a Ref<Texture> (the SpineRendererObject member type); the returned
 	// Ref<Texture2D> is what the shader sampler binds to.
 	Ref<Texture2D> get_3d_safe_texture(const Ref<Texture> &tex);
+
+	// Set the standard SpineSprite3D uniforms (billboard_mode, layer_z_spacing, depth_offset,
+	// modulate_color, alpha_scissor_threshold, fixed_size_enabled) on an opted-in custom-material
+	// clone, so a custom shader that declares them (e.g. via spine_sprite_3d.gdshaderinc) lays out
+	// and tints like the built-in material. Harmless for uniforms the shader does not declare.
+	void apply_custom_material_uniforms(const Ref<ShaderMaterial> &mat) const;
 
 public:
 	SpineSprite3D();
@@ -268,6 +383,30 @@ public:
 	// Task 6: shaded mode
 	void set_shaded(bool v);
 	bool get_shaded();
+
+	// Sprite3D-style rendering controls
+	void set_alpha_cut(AlphaCutMode v);
+	AlphaCutMode get_alpha_cut();
+	void set_alpha_scissor_threshold(float v);
+	float get_alpha_scissor_threshold();
+	void set_depth_offset(float v);
+	float get_depth_offset() const {
+		return depth_offset;
+	}
+	void set_no_depth_test(bool v);
+	bool get_no_depth_test();
+	void set_double_sided(bool v);
+	bool get_double_sided();
+	void set_fixed_size(bool v);
+	bool get_fixed_size();
+	void set_render_priority(int v);
+	int get_render_priority();
+	void set_modulate(const Color &v);
+	Color get_modulate();
+	void set_silhouette_mask_enabled(bool v);
+	bool get_silhouette_mask_enabled();
+	void set_silhouette_mask_half_res(bool v);
+	bool get_silhouette_mask_half_res();
 
 	// Task 8: per-blend-mode custom material overrides
 	void set_normal_material(Ref<Material> v);
@@ -381,5 +520,6 @@ public:
 
 VARIANT_ENUM_CAST(SpineSprite3D::BillboardMode)
 VARIANT_ENUM_CAST(SpineSprite3D::TextureFilter)
+VARIANT_ENUM_CAST(SpineSprite3D::AlphaCutMode)
 
 #endif// _3D_DISABLED

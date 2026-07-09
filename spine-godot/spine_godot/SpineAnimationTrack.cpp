@@ -326,23 +326,27 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 
 			if (should_set_animation) {
 				if (!EMPTY(animation_name)) {
-					auto &entry = animation_state->setAnimation(track_index, SPINE_STRING(animation_name), loop);
-					if (should_set_mix) entry.setMixDuration(mix_duration);
+					if (animation_state->getData().getSkeletonData().findAnimation(SPINE_STRING(animation_name))) {
+						auto &entry = animation_state->setAnimation(track_index, SPINE_STRING(animation_name), loop);
+						if (should_set_mix) entry.setMixDuration(mix_duration);
 
-					entry.setAdditive(additive);
-					entry.setReverse(reverse);
-					entry.setShortestRotation(shortest_rotation);
-					entry.setTimeScale(time_scale);
-					entry.setAlpha(alpha);
-					entry.setMixAttachmentThreshold(mix_attachment_threshold);
-					entry.setMixDrawOrderThreshold(mix_draw_order_threshold);
+						entry.setAdditive(additive);
+						entry.setReverse(reverse);
+						entry.setShortestRotation(shortest_rotation);
+						entry.setTimeScale(time_scale);
+						entry.setAlpha(alpha);
+						entry.setMixAttachmentThreshold(mix_attachment_threshold);
+						entry.setMixDrawOrderThreshold(mix_draw_order_threshold);
 
 
-					if (debug)
-						print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
-									   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
-									   .utf8()
-									   .ptr());
+						if (debug)
+							print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
+										   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
+										   .utf8()
+										   .ptr());
+					} else {
+						ERR_PRINT(String("SpineAnimationTrack: can not find animation: ") + animation_name);
+					}
 				} else {
 					if (!current_entry || (String("<empty>") != other_name)) {
 						auto &entry = animation_state->setEmptyAnimation(track_index, should_set_mix ? mix_duration : 0);
@@ -452,6 +456,10 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 		// properties.
 		float track_time = (playback_position - key_time) * time_scale;
 		if (track_time < 0) track_time = 0;
+		if (!animation_state->getData().getSkeletonData().findAnimation(SPINE_STRING(animation_name))) {
+			ERR_PRINT(String("SpineAnimationTrack: can not find animation: ") + animation_name);
+			return;
+		}
 		auto &entry = animation_state->setAnimation(track_index, SPINE_STRING(animation_name), loop);
 		entry.setMixDuration(0);
 		entry.setTrackTime(track_time);
@@ -479,23 +487,27 @@ void SpineAnimationTrack::update_animation_state(const Variant &variant_sprite) 
 
 			if (should_set_animation) {
 				if (!EMPTY(animation_name)) {
-					auto &entry = animation_state->setAnimation(track_index, SPINE_STRING(animation_name), loop);
-					if (should_set_mix) entry.setMixDuration(mix_duration);
+					if (animation_state->getData().getSkeletonData().findAnimation(SPINE_STRING(animation_name))) {
+						auto &entry = animation_state->setAnimation(track_index, SPINE_STRING(animation_name), loop);
+						if (should_set_mix) entry.setMixDuration(mix_duration);
 
-					entry.setAdditive(additive);
-					entry.setReverse(reverse);
-					entry.setShortestRotation(shortest_rotation);
-					entry.setTimeScale(time_scale);
-					entry.setAlpha(alpha);
-					entry.setMixAttachmentThreshold(mix_attachment_threshold);
-					entry.setMixDrawOrderThreshold(mix_draw_order_threshold);
+						entry.setAdditive(additive);
+						entry.setReverse(reverse);
+						entry.setShortestRotation(shortest_rotation);
+						entry.setTimeScale(time_scale);
+						entry.setAlpha(alpha);
+						entry.setMixAttachmentThreshold(mix_attachment_threshold);
+						entry.setMixDrawOrderThreshold(mix_draw_order_threshold);
 
 
-					if (debug)
-						print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
-									   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
-									   .utf8()
-									   .ptr());
+						if (debug)
+							print_line(String("Setting animation {0} with mix_duration {1} on track {2} on {3}")
+										   .format(varray(animation_name, mix_duration, track_index, sprite_owner->owner_as_node()->get_name()))
+										   .utf8()
+										   .ptr());
+					} else {
+						ERR_PRINT(String("SpineAnimationTrack: can not find animation: ") + animation_name);
+					}
 				} else {
 					if (!current_entry || (String("<empty>") != other_name)) {
 						auto &entry = animation_state->setEmptyAnimation(track_index, should_set_mix ? mix_duration : 0);
