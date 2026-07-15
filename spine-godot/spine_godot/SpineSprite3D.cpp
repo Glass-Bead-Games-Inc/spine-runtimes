@@ -3184,6 +3184,7 @@ void SpineSprite3D::pose_at(const String &animation_name, float time) {
 	animation_state->update(0);
 	animation_state->apply(skeleton);
 	skeleton->update_world_transform(SpineConstant::Physics_Update);
+	emit_signal(SNAME("world_transforms_changed"), this);// so SpineBoneNode3D/SpineSlotNode3D children follow the scrub
 	if (is_visible_in_tree()) {
 		build_meshes();
 		build_debug_mesh();
