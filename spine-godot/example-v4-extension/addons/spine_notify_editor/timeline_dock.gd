@@ -13,6 +13,10 @@ var _placeholder: Label
 var _toolbar: HBoxContainer
 var _anim_dropdown: OptionButton
 var _view                           # timeline_view
+var _strip: HBoxContainer
+var _name_edit: LineEdit
+var _channel_edit: LineEdit
+var _selected_notify
 
 var playing: bool = false
 var loop_enabled: bool = true
@@ -57,7 +61,47 @@ func _build_ui() -> void:
 	_view.setup(self)
 	add_child(_view)
 
+	_strip = HBoxContainer.new()
+	_name_edit = LineEdit.new(); _name_edit.placeholder_text = "name"
+	_name_edit.text_submitted.connect(func(_s): _apply_strip())
+	_channel_edit = LineEdit.new(); _channel_edit.placeholder_text = "channel"
+	_channel_edit.text_submitted.connect(func(_s): _apply_strip())
+	var insp := Button.new(); insp.text = "Edit in Inspector"
+	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
+	_strip.add_child(Label.new()); _strip.get_child(0).text = "notify:"
+	_strip.add_child(_name_edit); _strip.add_child(_channel_edit); _strip.add_child(insp)
+	add_child(_strip)
+	_strip.visible = false
+
 	_set_active(false)
+
+func ensure_track() -> void:
+	if player == null: return
+	if track == null:
+		var t = SpineNotifyTrack.new()
+		if undo_redo:
+			undo_redo.create_action("Create Notify Track")
+			undo_redo.add_do_property(player, "notify_track", t)
+			undo_redo.add_undo_property(player, "notify_track", null)
+			undo_redo.commit_action()
+		else:
+			player.notify_track = t
+		track = player.notify_track
+
+func edit_notify(n) -> void:
+	_selected_notify = n
+	_strip.visible = n != null
+	if n != null:
+		_name_edit.text = n.notify_name
+		_channel_edit.text = n.channel
+	if _view: _view.queue_redraw()
+
+func _apply_strip() -> void:
+	if _selected_notify == null: return
+	_selected_notify.notify_name = _name_edit.text
+	_selected_notify.channel = _channel_edit.text
+	if track: track.emit_changed()
+	if _view: _view.queue_redraw()
 
 func _process(delta: float) -> void:
 	if _view == null: return
@@ -81,6 +125,7 @@ func bind(p_player) -> void:
 	sprite = null
 	track = null
 	animation_names = PackedStringArray()
+	edit_notify(null)
 	if player != null:
 		var parent = player.get_parent()
 		if parent is SpineSprite3D:
