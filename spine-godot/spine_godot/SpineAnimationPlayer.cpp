@@ -33,6 +33,10 @@
 
 #include "SpineEvent.h"
 #include "SpineEventData.h"
+#include "SpineAnimationState.h"
+#include "SpineTrackEntry.h"
+#include "SpineAnimation.h"
+#include "SpineNotify.h"
 
 void SpineAnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_before_apply", "spine_sprite"), &SpineAnimationPlayer::on_before_apply);
@@ -79,9 +83,55 @@ void SpineAnimationPlayer::_notification(int what) {
 	}
 }
 
-// Filled in Task 4/5.
-void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {}
-void SpineAnimationPlayer::emit_forward(const String &anim, float lo, float hi) {}
+void SpineAnimationPlayer::emit_forward(const String &anim, float lo, float hi) {
+	if (notify_track.is_null()) return;
+	Array notifies = notify_track->get_notifies();
+	for (int i = 0; i < notifies.size(); i++) {
+		Ref<SpineNotify> n = notifies[i];
+		if (n.is_null() || n->get_animation_name() != anim) continue;
+		float t = n->get_time();
+		if (t > lo && t <= hi) {
+			Dictionary payload = n->get_payload().duplicate();
+			payload["source"] = "notify";
+			emit_signal(SNAME("notified"), n->get_notify_name(), t, payload);
+		}
+	}
+}
+
+void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {
+	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
+	if (!sprite) return;
+	Ref<SpineAnimationState> state = sprite->get_animation_state();
+	if (state.is_null() || !state->get_spine_object()) return;
+
+	int n = state->get_num_tracks();
+	if (n > MAX_TRACKS) n = MAX_TRACKS;
+	for (int i = 0; i < n; i++) {
+		Ref<SpineTrackEntry> entry = state->get_track(i);
+		if (entry.is_null() || !entry->get_spine_object()) { prev_anim[i] = String(); continue; }
+		Ref<SpineAnimation> anim = entry->get_animation();
+		if (anim.is_null()) { prev_anim[i] = String(); continue; }
+		String anim_name = anim->get_name();
+		float cur = entry->get_animation_time();
+		float dur = anim->get_duration();
+
+		// Discontinuity: first-seen, animation changed, or a global reset (seek/play). Fire nothing.
+		if (discontinuity_pending || prev_anim[i] != anim_name) {
+			prev_anim[i] = anim_name;
+			prev_time[i] = cur;
+			continue;
+		}
+		float prev = prev_time[i];
+		if (cur >= prev) {
+			emit_forward(anim_name, prev, cur);// normal forward
+		} else if (entry->get_loop()) {
+			emit_forward(anim_name, prev, dur);// wrapped: tail of the cycle...
+			emit_forward(anim_name, -1.0f, cur);// ...then head of the next
+		}
+		prev_time[i] = cur;
+	}
+	discontinuity_pending = false;
+}
 void SpineAnimationPlayer::on_spine_event(const Variant &_sprite, const Variant &_state, const Variant &_entry, const Variant &_event) {
 	if (!forward_spine_events) return;
 	Ref<SpineEvent> event = _event;
