@@ -31,6 +31,9 @@
 #include "SpineAnimationPlayer.h"
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
+#include "SpineEvent.h"
+#include "SpineEventData.h"
+
 void SpineAnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_before_apply", "spine_sprite"), &SpineAnimationPlayer::on_before_apply);
 	ClassDB::bind_method(D_METHOD("_on_spine_event", "spine_sprite", "animation_state", "track_entry", "event"), &SpineAnimationPlayer::on_spine_event);
@@ -79,8 +82,21 @@ void SpineAnimationPlayer::_notification(int what) {
 // Filled in Task 4/5.
 void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {}
 void SpineAnimationPlayer::emit_forward(const String &anim, float lo, float hi) {}
-// Filled in Task 3.
-void SpineAnimationPlayer::on_spine_event(const Variant &_sprite, const Variant &_state, const Variant &_entry, const Variant &_event) {}
+void SpineAnimationPlayer::on_spine_event(const Variant &_sprite, const Variant &_state, const Variant &_entry, const Variant &_event) {
+	if (!forward_spine_events) return;
+	Ref<SpineEvent> event = _event;
+	if (event.is_null()) return;
+	Ref<SpineEventData> data = event->get_data();
+	if (data.is_null()) return;
+	Dictionary payload;
+	payload["source"] = "spine_event";
+	payload["int"] = event->get_int_value();
+	payload["float"] = event->get_float_value();
+	payload["string"] = event->get_string_value();
+	payload["volume"] = event->get_volume();
+	payload["balance"] = event->get_balance();
+	emit_signal(SNAME("notified"), data->get_event_name(), event->get_time(), payload);
+}
 // Filled in Task 5.
 void SpineAnimationPlayer::play(const String &animation_name, bool loop, int track) {}
 void SpineAnimationPlayer::seek(float time, int track) {}
