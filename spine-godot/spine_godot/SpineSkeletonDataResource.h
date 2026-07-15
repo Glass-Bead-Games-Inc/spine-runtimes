@@ -179,6 +179,9 @@ public:
 
 	Array get_animations() const;
 
+	// Returns the animation's spine EVENT keys as [{ "time": float, "name": String }, ...] (empty if none).
+	Array get_animation_events(const String &animation_name);
+
 	Array get_ik_constraints() const;
 
 	Array get_transform_constraints() const;
