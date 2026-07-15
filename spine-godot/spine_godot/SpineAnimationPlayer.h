@@ -49,6 +49,7 @@ protected:
 
 	// Per-track crossing state.
 	float prev_time[MAX_TRACKS];
+	float prev_track_time[MAX_TRACKS];
 	String prev_anim[MAX_TRACKS];
 	bool discontinuity_pending = true;// reset all tracks on next observe (set on parent/seek/play)
 
@@ -60,7 +61,10 @@ protected:
 
 public:
 	SpineAnimationPlayer() {
-		for (int i = 0; i < MAX_TRACKS; i++) prev_time[i] = 0.0f;
+		for (int i = 0; i < MAX_TRACKS; i++) {
+			prev_time[i] = 0.0f;
+			prev_track_time[i] = 0.0f;
+		}
 	}
 
 	void set_notify_track(const Ref<SpineNotifyTrack> &v) { notify_track = v; }
