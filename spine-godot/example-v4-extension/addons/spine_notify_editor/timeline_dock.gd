@@ -14,6 +14,13 @@ var _toolbar: HBoxContainer
 var _anim_dropdown: OptionButton
 var _view                           # timeline_view
 
+var playing: bool = false
+var loop_enabled: bool = true
+var _play_btn: Button
+var _loop_btn: CheckButton
+var _snap_btn: CheckButton
+var _time_label: Label
+
 func setup(p_undo_redo, p_editor_interface) -> void:
 	undo_redo = p_undo_redo
 	editor_interface = p_editor_interface
@@ -31,6 +38,19 @@ func _build_ui() -> void:
 	_toolbar.add_child(_anim_dropdown)
 	add_child(_toolbar)
 
+	_play_btn = Button.new(); _play_btn.text = "Play"
+	_play_btn.pressed.connect(func(): playing = not playing; _play_btn.text = ("Pause" if playing else "Play"))
+	_toolbar.add_child(_play_btn)
+	_loop_btn = CheckButton.new(); _loop_btn.text = "Loop"; _loop_btn.button_pressed = true
+	_loop_btn.toggled.connect(func(on): loop_enabled = on)
+	_toolbar.add_child(_loop_btn)
+	_snap_btn = CheckButton.new(); _snap_btn.text = "Snap"; _snap_btn.button_pressed = true
+	_snap_btn.toggled.connect(func(on): if _view: _view.snap_enabled = on; _view.queue_redraw())
+	_toolbar.add_child(_snap_btn)
+	_time_label = Label.new()
+	_toolbar.add_child(_time_label)
+	set_process(true)
+
 	var ViewScript := load("res://addons/spine_notify_editor/timeline_view.gd")
 	_view = ViewScript.new()
 	_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -38,6 +58,18 @@ func _build_ui() -> void:
 	add_child(_view)
 
 	_set_active(false)
+
+func _process(delta: float) -> void:
+	if _view == null: return
+	if playing and _view.visible:
+		var dur: float = _view.duration()
+		var t: float = _view.playhead_time + delta
+		if t >= dur:
+			t = 0.0 if loop_enabled else dur
+			if not loop_enabled: playing = false; _play_btn.text = "Play"
+		_view.set_playhead(t)
+	if _time_label and _view:
+		_time_label.text = "  %.2f / %.2f" % [_view.playhead_time, _view.duration()]
 
 func _set_active(active: bool) -> void:
 	if _placeholder: _placeholder.visible = not active
@@ -76,6 +108,13 @@ func _current_animation() -> String:
 
 func _on_animation_changed() -> void:
 	if _view: _view.refresh()
+
+func select_animation(anim: String) -> void:
+	for i in _anim_dropdown.item_count:
+		if _anim_dropdown.get_item_text(i) == anim:
+			_anim_dropdown.select(i)
+			break
+	_on_animation_changed()
 
 func _on_animation_changed_external() -> void:
 	_on_animation_changed()
