@@ -1,12 +1,7 @@
 name: Build spine-godot (Godot 3.6)
 on:
-  push:
-    branches:
-      - '**'
-    paths:
-      - ".github/workflows/spine-godot.yml"
-      - 'spine-godot/**'
-      - 'spine-cpp/**'
+  # Auto-run disabled: this fork targets the Godot 4.7 GDExtension, not the Godot 3.6 module.
+  # Kept for manual runs only (Actions -> this workflow -> "Run workflow").
   workflow_dispatch:
 
 env:
