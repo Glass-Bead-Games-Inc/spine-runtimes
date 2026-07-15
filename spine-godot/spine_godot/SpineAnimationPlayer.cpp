@@ -124,10 +124,26 @@ void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {
 		float prev = prev_time[i];
 		if (cur >= prev) {
 			emit_forward(anim_name, prev, cur);// normal forward
+		} else if (entry->get_time_scale() < 0.0f) {
+			// reverse: playhead moved backward without wrapping; fire notifies in [cur, prev)
+			if (!notify_track.is_null()) {
+				Array notifies = notify_track->get_notifies();
+				for (int k = 0; k < notifies.size(); k++) {
+					Ref<SpineNotify> nt = notifies[k];
+					if (nt.is_null() || nt->get_animation_name() != anim_name) continue;
+					float t = nt->get_time();
+					if (t >= cur && t < prev) {
+						Dictionary payload = nt->get_payload().duplicate();
+						payload["source"] = "notify";
+						emit_signal(SNAME("notified"), nt->get_notify_name(), t, payload);
+					}
+				}
+			}
 		} else if (entry->get_loop()) {
 			emit_forward(anim_name, prev, dur);// wrapped: tail of the cycle...
 			emit_forward(anim_name, -1.0f, cur);// ...then head of the next
 		}
+		// else: cur < prev, not looping, not reverse -> treated as a jump; fire nothing.
 		prev_time[i] = cur;
 	}
 	discontinuity_pending = false;
@@ -147,7 +163,23 @@ void SpineAnimationPlayer::on_spine_event(const Variant &_sprite, const Variant 
 	payload["balance"] = event->get_balance();
 	emit_signal(SNAME("notified"), data->get_event_name(), event->get_time(), payload);
 }
-// Filled in Task 5.
-void SpineAnimationPlayer::play(const String &animation_name, bool loop, int track) {}
-void SpineAnimationPlayer::seek(float time, int track) {}
+void SpineAnimationPlayer::play(const String &animation_name, bool loop, int track) {
+	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
+	if (!sprite) return;
+	Ref<SpineAnimationState> state = sprite->get_animation_state();
+	if (state.is_null() || !state->get_spine_object()) return;
+	state->set_animation(animation_name, loop, track);
+	discontinuity_pending = true;// the new animation starts fresh; don't retro-fire
+}
+
+void SpineAnimationPlayer::seek(float time, int track) {
+	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
+	if (!sprite) return;
+	Ref<SpineAnimationState> state = sprite->get_animation_state();
+	if (state.is_null() || !state->get_spine_object()) return;
+	Ref<SpineTrackEntry> entry = state->get_track(track);
+	if (entry.is_null() || !entry->get_spine_object()) return;
+	entry->set_track_time(time);
+	discontinuity_pending = true;// jump: resync, fire nothing for the skipped span
+}
 #endif
