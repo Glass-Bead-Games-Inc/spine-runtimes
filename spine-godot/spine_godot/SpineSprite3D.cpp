@@ -757,6 +757,7 @@ void SpineSprite3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_global_bone_transform_3d", "bone_name"), &SpineSprite3D::get_global_bone_transform_3d);
 	ClassDB::bind_method(D_METHOD("set_global_bone_transform_3d", "bone_name", "xform"), &SpineSprite3D::set_global_bone_transform_3d);
+	ClassDB::bind_method(D_METHOD("pose_at", "animation_name", "time"), &SpineSprite3D::pose_at);
 
 	// Task 11: debug overlay bindings
 	ClassDB::bind_method(D_METHOD("set_debug_root", "v"), &SpineSprite3D::set_debug_root);
@@ -3167,6 +3168,26 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 	bone->getPose().set(pose);
 
 	modified_bones = true;
+}
+
+void SpineSprite3D::pose_at(const String &animation_name, float time) {
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+	if (!animation_state.is_valid() || !animation_state->get_spine_object()) return;
+	skeleton->set_to_setup_pose();
+	if (animation_name.is_empty()) return;
+	Ref<SpineTrackEntry> entry = animation_state->set_animation(animation_name, false, 0);
+	if (entry.is_valid() && entry->get_spine_object()) {
+		entry->set_mix_duration(0);
+		entry->set_time_scale(0);
+		entry->set_track_time(time);
+	}
+	animation_state->update(0);
+	animation_state->apply(skeleton);
+	skeleton->update_world_transform(SpineConstant::Physics_Update);
+	if (is_visible_in_tree()) {
+		build_meshes();
+		build_debug_mesh();
+	}
 }
 
 #endif// _3D_DISABLED

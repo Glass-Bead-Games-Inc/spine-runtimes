@@ -427,6 +427,10 @@ public:
 	Transform3D get_global_bone_transform_3d(const String &bone_name);
 	void set_global_bone_transform_3d(const String &bone_name, Transform3D xform);
 
+	// Editor/manual scrub: pose the skeleton at `time` of `animation_name` and rebuild the mesh, WITHOUT
+	// changing the stored preview_* properties (so scrubbing does not dirty the scene).
+	void pose_at(const String &animation_name, float time);
+
 	// Task 11: debug overlay getters/setters (parity with SpineSprite 2D)
 	bool get_debug_root() {
 		return debug_root;
