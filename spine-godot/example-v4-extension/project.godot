@@ -16,6 +16,10 @@ config/features=PackedStringArray("4.5")
 run/low_processor_mode=true
 config/icon="res://icon.png"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/spine_notify_editor/plugin.cfg")
+
 [global]
 
 batch=false
