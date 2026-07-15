@@ -420,6 +420,10 @@ public:
 
 	// Task 9: lifting helper and global bone transform accessors
 	Transform3D bone_to_transform3d(spine::Bone *bone, float slot_z) const;
+	// When billboard != Disabled and an active camera exists, writes the camera-facing card BASIS the
+	// display shader uses (full or Y) into `out` and returns true; else returns false. SpineBoneNode3D
+	// uses it so a Follow-mode attachment tracks the billboarded body instead of the flat card plane.
+	bool get_billboard_basis(Basis &out) const;
 	Transform3D get_global_bone_transform_3d(const String &bone_name);
 	void set_global_bone_transform_3d(const String &bone_name, Transform3D xform);
 

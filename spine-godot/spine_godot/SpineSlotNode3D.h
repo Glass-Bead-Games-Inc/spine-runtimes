@@ -55,9 +55,7 @@ protected:
 
 	static void _bind_methods();
 	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
+	void _validate_property(PropertyInfo &property) const;
 	void on_world_transforms_changed(const Variant &_sprite);
 	void update_transform(SpineSprite3D *sprite);
 

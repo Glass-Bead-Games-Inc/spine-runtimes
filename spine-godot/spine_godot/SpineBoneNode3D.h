@@ -39,6 +39,7 @@
 #include <godot_cpp/classes/node3d.hpp>
 #else
 #include "scene/3d/node_3d.h"
+#include "scene/resources/material.h"
 #endif
 
 class SpineBoneNode3D : public Node3D {
@@ -50,6 +51,16 @@ protected:
 	SpineConstant::BoneMode bone_mode;
 	bool enabled;
 
+	// Optional debug overlay (like the 2D SpineBoneNode): draws a bone kite AT THIS NODE'S transform, so
+	// you can overlay it on the SpineSprite3D debug bones and confirm they coincide (i.e. the attachment
+	// transform matches the bone). Rendered via a separate RS instance in the node's world scenario.
+	bool debug_bone;
+	float debug_thickness;
+	Color debug_color;
+	RID debug_instance;
+	RID debug_mesh;
+	Ref<Material> debug_material;
+
 	static void _bind_methods();
 	void _notification(int what);
 	void _get_property_list(List<PropertyInfo> *list) const;
@@ -58,10 +69,14 @@ protected:
 	void on_before_world_transforms_change(const Variant &_sprite);
 	void on_world_transforms_changed(const Variant &_sprite);
 	void update_transform(SpineSprite3D *sprite);
+	void update_debug(SpineSprite3D *sprite);
+	void free_debug();
 
 public:
-	SpineBoneNode3D() : bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true) {
+	SpineBoneNode3D() : bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true),
+						debug_bone(false), debug_thickness(8.0f), debug_color(Color(0, 1, 1, 0.6f)) {
 	}
+	~SpineBoneNode3D();
 
 	void set_bone_name(const String &_bone_name);
 	String get_bone_name();
@@ -71,6 +86,13 @@ public:
 
 	void set_enabled(bool v);
 	bool get_enabled();
+
+	void set_debug_bone(bool v);
+	bool get_debug_bone();
+	void set_debug_thickness(float v);
+	float get_debug_thickness();
+	void set_debug_color(const Color &v);
+	Color get_debug_color();
 
 	int get_bone_index() {
 		return bone_index;
