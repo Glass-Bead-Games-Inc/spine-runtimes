@@ -67,12 +67,16 @@ capture radius so you can drag "near the footstep" and land on it. `snap(t)`:
      `round(target * fps) / fps` — so even an off-grid event resolves to an exact frame.
   3. Otherwise return `f`.
 
-`MAGNET_PX = 10.0`. Why a pixel radius rather than "nearest of {frame, event, notify}": with frame-aligned
-targets the nearest frame to an event *is* that event's frame, so a plain nearest-of would never differ from
-frame snap (no magnet behavior). The pixel radius makes events/notifies "sticky" from several frames away
-while plain frame snapping keeps its fine ±half-frame radius everywhere else. Frame-exactness holds because
-the magnet result is itself frame-aligned. Applies everywhere mouse times originate (scrub, add, drag) since
-those route through `snap()`. A dragged notify excludes itself so it can't magnet to its own old position.
+`MAGNET_PX = 10.0` (a fixed on-screen radius). Why a pixel radius rather than "nearest of {frame, event,
+notify}": with frame-aligned targets the nearest frame to an event *is* that event's frame, so a plain
+nearest-of would never differ from frame snap. A fixed pixel radius instead gives a **consistent visual
+stickiness** that adapts to frame density: for a long/dense animation (frames only a few px apart) 10px spans
+one-plus frames, so dragging near a footstep snaps onto it even though the geometrically-nearest frame is a
+different one; for a short/sparse animation (frames far apart) 10px is under half a frame, so the magnet
+rarely overrides and plain frame snapping — which already lands you on the event's frame — does the work.
+Either way the result is frame-aligned (`round(target*fps)/fps`), so frame-exactness always holds. Applies
+everywhere mouse times originate (scrub, add, drag) since those route through `snap()`. A dragged notify
+excludes itself so it can't magnet to its own old position.
 
 ## 5. Typed payload editor (inline, in the marker strip)
 
@@ -124,13 +128,13 @@ affects the dock's local `_extra_channels`.
 - **Channels:** notifies with channels `{default, vfx, sfx}` → `channels()` returns `["default","sfx","vfx"]`
   (default first, rest sorted); `add_notify_at(t, "vfx")` yields a notify with `channel == "vfx"`; adding
   `"gameplay"` to `_extra_channels` makes it appear in `channels()` even with no notifies.
-- **Magnet snap:** view sized `1000×200` (track width ≈ 988, so 10px ≈ 0.0101s), Snap on, fps 30, an event
-  at 0.5 and a notify at 0.3. `snap(0.505)` (≈5px from the 0.5 event) `== 0.5` (magnet → its frame);
-  `snap(0.45)` (≈49px from any target) `== round(0.45*30)/30 == 14/30` (plain frame, no magnet);
-  `snap(0.30)` `== 0.30`. With `_drag_notify` set to the 0.3 notify, `snap(0.305)` does **not** magnet back to
-  0.3 (self excluded) → its frame `round(0.305*30)/30 == 9/30 == 0.30`… (choose a drag-exclusion case whose
-  frame differs, e.g. `_drag_notify` at 0.30 and `snap(0.34)` ≈ frame 10 = 0.3333, confirming it didn't stick
-  to 0.30).
+- **Magnet snap:** use a **narrow** view (`200×260`, track width ≈ 116 → ≈ 3.9 px/frame, so the 10px magnet
+  spans ≈ 2.6 frames and genuinely overrides plain frame snap), Snap on, fps 30, event at 0.5, notify added at
+  0.30. `snap(0.47)` (≈3.5px from the 0.5 event) `== 0.5` while plain frame would be `14/30 ≈ 0.4667` (magnet
+  overrides → RED against old snap); `snap(0.32)` (≈2.3px from the 0.30 notify) `== 0.30` vs plain `10/30 ≈
+  0.3333`; `snap(0.80)` (far from every target) `== round(0.80*30)/30 == 0.80` (plain frame). With
+  `_drag_notify` = the 0.30 notify, `snap(0.32)` no longer magnets to 0.30 (self excluded) → its frame
+  `round(0.32*30)/30 == 10/30 ≈ 0.3333`.
 - **Payload:** set rows `{speed: float 2.5, loop: bool true, tag: String hi}` → `_apply_payload` →
   `notify.payload == {"speed": 2.5, "loop": true, "tag": "hi"}` with correct Variant types; re-`edit_notify`
   round-trips the rows (types inferred); blank-key row is dropped.
