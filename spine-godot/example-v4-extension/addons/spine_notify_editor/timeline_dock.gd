@@ -24,6 +24,9 @@ var _play_btn: Button
 var _loop_btn: CheckButton
 var _snap_btn: CheckButton
 var _time_label: Label
+var _extra_channels: Array = []
+var _new_channel_edit: LineEdit
+var _add_channel_btn: Button
 
 func setup(p_undo_redo, p_editor_interface) -> void:
 	undo_redo = p_undo_redo
@@ -53,6 +56,14 @@ func _build_ui() -> void:
 	_toolbar.add_child(_snap_btn)
 	_time_label = Label.new()
 	_toolbar.add_child(_time_label)
+	_new_channel_edit = LineEdit.new()
+	_new_channel_edit.placeholder_text = "new channel…"
+	_new_channel_edit.custom_minimum_size.x = 100
+	_new_channel_edit.text_submitted.connect(func(_s): _add_channel())
+	_toolbar.add_child(_new_channel_edit)
+	_add_channel_btn = Button.new(); _add_channel_btn.text = "+ Channel"
+	_add_channel_btn.pressed.connect(_add_channel)
+	_toolbar.add_child(_add_channel_btn)
 	set_process(true)
 
 	var ViewScript := load("res://addons/spine_notify_editor/timeline_view.gd")
@@ -89,6 +100,15 @@ func ensure_track() -> void:
 		else:
 			player.notify_track = t
 		track = player.notify_track
+
+func _add_channel() -> void:
+	var cname: String = _new_channel_edit.text.strip_edges()
+	if cname == "": return
+	if not (cname in _extra_channels): _extra_channels.append(cname)
+	_new_channel_edit.text = ""
+	if _view:
+		_view.refresh()
+		_view.queue_redraw()
 
 func edit_notify(n) -> void:
 	_selected_notify = n
@@ -142,7 +162,10 @@ func _set_active(active: bool) -> void:
 	if _view: _view.visible = active
 
 func bind(p_player) -> void:
-	player = p_player if (p_player != null and is_instance_valid(p_player)) else null
+	var new_player = p_player if (p_player != null and is_instance_valid(p_player)) else null
+	if new_player != player:
+		_extra_channels = []
+	player = new_player
 	sprite = null
 	track = null
 	animation_names = PackedStringArray()
