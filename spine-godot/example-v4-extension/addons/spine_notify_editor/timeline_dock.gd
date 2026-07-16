@@ -34,10 +34,67 @@ var _tp_stop: Button
 var _tp_start: Button
 var _tp_play: Button
 var _active_tp: Button
-var _loop_btn: CheckButton
-var _snap_btn: CheckButton
+var _tp_group: HBoxContainer
+var _loop_btn: Button
+var _snap_btn: Button
 var _time_label: Label
 var _extra_channels: Array = []
+
+# palette (matches the approved mock)
+const D_PANEL2 := Color(0.173, 0.184, 0.216)   # #2c2f37
+const D_HAIR := Color(0.078, 0.082, 0.102)     # #14151a
+const D_INK := Color(0.827, 0.847, 0.878)
+const D_INKDIM := Color(0.569, 0.596, 0.647)
+const D_ACCENT := Color(0.353, 0.624, 0.831)   # #5a9fd4
+const D_NOTIFY := Color(0.878, 0.600, 0.243)   # #e0993e
+const D_EVENT := Color(0.286, 0.718, 0.686)    # #49b7b0
+const D_INKON := Color(0.06, 0.09, 0.12)       # ink on accent
+
+func _flat(bg: Color, radius: int, border := 0, bcol := Color(0, 0, 0, 0)) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.set_corner_radius_all(radius)
+	s.set_content_margin_all(0)
+	if border > 0:
+		s.set_border_width_all(border)
+		s.border_color = bcol
+	return s
+
+func _pad(sb: StyleBoxFlat, h: int, v: int) -> StyleBoxFlat:
+	sb.content_margin_left = h
+	sb.content_margin_right = h
+	sb.content_margin_top = v
+	sb.content_margin_bottom = v
+	return sb
+
+func _style_icon_btn(b: Button) -> void:
+	b.add_theme_stylebox_override("normal", _flat(Color(0, 0, 0, 0), 4))
+	b.add_theme_stylebox_override("hover", _flat(Color(1, 1, 1, 0.09), 4))
+	b.add_theme_stylebox_override("pressed", _flat(D_ACCENT, 4))
+	b.add_theme_stylebox_override("focus", _flat(Color(0, 0, 0, 0), 4))
+	b.add_theme_color_override("font_color", D_INK)
+	b.custom_minimum_size = Vector2(30, 26)
+
+func _style_toggle(b: Button) -> void:
+	b.toggle_mode = true
+	b.add_theme_stylebox_override("normal", _pad(_flat(Color(0, 0, 0, 0.15), 5, 1, D_HAIR), 10, 5))
+	b.add_theme_stylebox_override("hover", _pad(_flat(Color(1, 1, 1, 0.06), 5, 1, D_HAIR), 10, 5))
+	b.add_theme_stylebox_override("pressed", _pad(_flat(D_ACCENT, 5), 10, 5))
+	b.add_theme_stylebox_override("hover_pressed", _pad(_flat(D_ACCENT, 5), 10, 5))
+	b.add_theme_stylebox_override("focus", _flat(Color(0, 0, 0, 0), 5))
+	b.add_theme_color_override("font_color", D_INKDIM)
+	b.add_theme_color_override("font_hover_color", D_INK)
+	b.add_theme_color_override("font_pressed_color", D_INKON)
+	b.add_theme_color_override("font_hover_pressed_color", D_INKON)
+	b.add_theme_color_override("icon_normal_color", D_INKDIM)
+	b.add_theme_color_override("icon_pressed_color", D_INKON)
+
+func _style_btn(b: Button) -> void:
+	b.add_theme_stylebox_override("normal", _pad(_flat(Color(0, 0, 0, 0.18), 4, 1, D_HAIR), 10, 4))
+	b.add_theme_stylebox_override("hover", _pad(_flat(Color(1, 1, 1, 0.08), 4, 1, D_HAIR), 10, 4))
+	b.add_theme_stylebox_override("pressed", _pad(_flat(Color(1, 1, 1, 0.14), 4, 1, D_HAIR), 10, 4))
+	b.add_theme_stylebox_override("focus", _flat(Color(0, 0, 0, 0), 4))
+	b.add_theme_color_override("font_color", D_INK)
 
 func setup(p_undo_redo, p_editor_interface) -> void:
 	undo_redo = p_undo_redo
@@ -51,33 +108,60 @@ func _build_ui() -> void:
 	add_child(_placeholder)
 
 	_toolbar = HBoxContainer.new()
+	_toolbar.add_theme_constant_override("separation", 8)
 	_anim_dropdown = OptionButton.new()
+	_anim_dropdown.custom_minimum_size = Vector2(120, 0)
 	_anim_dropdown.item_selected.connect(func(_i): _on_animation_changed())
 	_toolbar.add_child(_anim_dropdown)
 	add_child(_toolbar)
 
-	_tp_bw_from = _make_tp("PlayBackwards", "|<", "Play backwards from current pos.", _play_bw_from_current)
-	_tp_bw_end  = _make_tp("PlayStartBackwards", "<|", "Play backwards from end.", _play_bw_from_end)
-	_tp_stop    = _make_tp("Stop", "[]", "Pause/stop.", _stop)
-	_tp_start   = _make_tp("PlayStart", "|>", "Play from start.", _play_from_start)
-	_tp_play    = _make_tp("Play", ">", "Play from current pos.", _play_from_current)
-	_loop_btn = CheckButton.new(); _loop_btn.text = "Loop"; _loop_btn.button_pressed = true
+	var tpc := PanelContainer.new()
+	tpc.add_theme_stylebox_override("panel", _pad(_flat(Color(0, 0, 0, 0.15), 5, 1, D_HAIR), 2, 2))
+	_tp_group = HBoxContainer.new()
+	_tp_group.add_theme_constant_override("separation", 2)
+	tpc.add_child(_tp_group)
+	_toolbar.add_child(tpc)
+	_tp_bw_from = _make_tp("PlayBackwards", "◀", "Play backwards from current pos.", _play_bw_from_current)
+	_tp_bw_end  = _make_tp("PlayStartBackwards", "◀◀", "Play backwards from end.", _play_bw_from_end)
+	_tp_stop    = _make_tp("Stop", "■", "Pause/stop.", _stop)
+	_tp_start   = _make_tp("PlayStart", "▶|", "Play from start.", _play_from_start)
+	_tp_play    = _make_tp("Play", "▶", "Play from current pos.", _play_from_current)
+
+	_loop_btn = Button.new(); _loop_btn.text = " Loop"
+	var loop_ic := _editor_icon("Loop")
+	if loop_ic: _loop_btn.icon = loop_ic
+	_style_toggle(_loop_btn)
+	_loop_btn.button_pressed = true          # after toggle_mode is set, so it sticks
 	_loop_btn.toggled.connect(func(on): loop_enabled = on)
 	_toolbar.add_child(_loop_btn)
-	_snap_btn = CheckButton.new(); _snap_btn.text = "Snap"; _snap_btn.button_pressed = true
+	_snap_btn = Button.new(); _snap_btn.text = " Snap"
+	var snap_ic := _editor_icon("SnapGrid")
+	if snap_ic: _snap_btn.icon = snap_ic
+	_style_toggle(_snap_btn)
+	_snap_btn.button_pressed = true
 	_snap_btn.toggled.connect(func(on): if _view: _view.snap_enabled = on; _view.queue_redraw())
 	_toolbar.add_child(_snap_btn)
 	_time_label = Label.new()
+	_time_label.add_theme_color_override("font_color", D_INKDIM)
 	_toolbar.add_child(_time_label)
 	set_process(true)
 
 	_timeline_row = HBoxContainer.new()
 	_timeline_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_timeline_row.add_theme_constant_override("separation", 0)
+	var hpanel := PanelContainer.new()
+	hpanel.custom_minimum_size = Vector2(176, 0)
+	var hsb := _flat(D_PANEL2, 0)
+	hsb.border_width_right = 1
+	hsb.border_color = D_HAIR
+	hsb.content_margin_left = 10
+	hsb.content_margin_right = 8
+	hpanel.add_theme_stylebox_override("panel", hsb)
 	_headers = VBoxContainer.new()
-	_headers.custom_minimum_size = Vector2(176, 0)
 	_headers.add_theme_constant_override("separation", 0)
-	_timeline_row.add_child(_headers)
+	_headers.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	hpanel.add_child(_headers)
+	_timeline_row.add_child(hpanel)
 	var ViewScript := load("res://addons/spine_notify_editor/timeline_view.gd")
 	_view = ViewScript.new()
 	_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -88,22 +172,35 @@ func _build_ui() -> void:
 	_rebuild_headers()
 
 	_strip = VBoxContainer.new()
+	_strip.add_theme_constant_override("separation", 6)
 	var row1 := HBoxContainer.new()
-	row1.add_child(Label.new()); row1.get_child(0).text = "notify:"
-	_name_edit = LineEdit.new(); _name_edit.placeholder_text = "name"
+	row1.add_theme_constant_override("separation", 8)
+	var nlbl := Label.new(); nlbl.text = "notify"; nlbl.add_theme_color_override("font_color", D_INKDIM)
+	row1.add_child(nlbl)
+	_name_edit = LineEdit.new(); _name_edit.placeholder_text = "name"; _name_edit.custom_minimum_size = Vector2(180, 0)
 	_name_edit.text_submitted.connect(func(_s): _apply_strip())
 	_name_edit.focus_exited.connect(_apply_strip)
+	row1.add_child(_name_edit)
 	_channel_chip = Label.new()
 	_channel_chip.add_theme_font_size_override("font_size", 12)
-	_channel_chip.add_theme_color_override("font_color", Color(0.88,0.60,0.24))
+	_channel_chip.add_theme_color_override("font_color", D_NOTIFY)
+	var csb := _flat(Color(D_NOTIFY.r, D_NOTIFY.g, D_NOTIFY.b, 0.15), 9, 1, Color(D_NOTIFY.r, D_NOTIFY.g, D_NOTIFY.b, 0.4))
+	_channel_chip.add_theme_stylebox_override("normal", _pad(csb, 10, 3))
+	row1.add_child(_channel_chip)
+	var spacer := Control.new(); spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row1.add_child(spacer)
 	var insp := Button.new(); insp.text = "Edit in Inspector"
 	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
-	row1.add_child(_name_edit); row1.add_child(_channel_chip); row1.add_child(insp)
+	_style_btn(insp)
+	row1.add_child(insp)
 	_strip.add_child(row1)
 	_payload_box = VBoxContainer.new()
+	_payload_box.add_theme_constant_override("separation", 4)
 	_strip.add_child(_payload_box)
 	_add_key_btn = Button.new(); _add_key_btn.text = "+ Add key"
 	_add_key_btn.pressed.connect(_on_add_key)
+	_style_btn(_add_key_btn)
+	_add_key_btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_strip.add_child(_add_key_btn)
 	add_child(_strip)
 	_strip.visible = false
@@ -124,13 +221,20 @@ func _make_tp(icon_name: String, fallback: String, tip: String, fn: Callable) ->
 	else: b.text = fallback
 	b.tooltip_text = tip
 	b.pressed.connect(fn)
-	_toolbar.add_child(b)
+	_style_icon_btn(b)
+	_tp_group.add_child(b)
 	return b
 
 func _set_active_tp(b) -> void:
-	if _active_tp and is_instance_valid(_active_tp): _active_tp.modulate = Color(1, 1, 1)
+	if _active_tp and is_instance_valid(_active_tp):
+		_active_tp.add_theme_stylebox_override("normal", _flat(Color(0, 0, 0, 0), 4))
+		_active_tp.add_theme_color_override("icon_normal_color", D_INK)
+		_active_tp.add_theme_color_override("font_color", D_INK)
 	_active_tp = b
-	if b: b.modulate = Color(0.55, 0.78, 1.0)
+	if b:
+		b.add_theme_stylebox_override("normal", _flat(D_ACCENT, 4))
+		b.add_theme_color_override("icon_normal_color", D_INKON)
+		b.add_theme_color_override("font_color", D_INKON)
 
 func _play_from_start() -> void:
 	if _view: _view.set_playhead(0.0)
@@ -168,6 +272,9 @@ func _rebuild_headers() -> void:
 	addbtn.tooltip_text = "Add a named channel track"
 	addbtn.custom_minimum_size = Vector2(0, 24)
 	addbtn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	addbtn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_style_btn(addbtn)
+	addbtn.add_theme_color_override("font_color", D_INKDIM)
 	var addfield := LineEdit.new()
 	addfield.placeholder_text = "channel name…"
 	addfield.visible = false
@@ -183,8 +290,9 @@ func _rebuild_headers() -> void:
 	for tk in _view.tracks():
 		var row := HBoxContainer.new()
 		row.custom_minimum_size = Vector2(0, 36)
-		var sw := ColorRect.new(); sw.custom_minimum_size = Vector2(9, 9)
-		sw.color = Color(0.29,0.72,0.69) if tk.kind == "events" else Color(0.88,0.60,0.24)
+		row.add_theme_constant_override("separation", 9)
+		var sw := ColorRect.new(); sw.custom_minimum_size = Vector2(10, 10)
+		sw.color = D_EVENT if tk.kind == "events" else D_NOTIFY
 		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(sw)
 		var is_events: bool = tk.kind == "events"
@@ -193,6 +301,8 @@ func _rebuild_headers() -> void:
 		if renameable:
 			var nb := Button.new(); nb.flat = true; nb.text = cname
 			nb.add_theme_font_size_override("font_size", 13)
+			nb.add_theme_color_override("font_color", D_INK)
+			nb.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 			nb.tooltip_text = "Double-click to rename"
 			nb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			nb.gui_input.connect(func(ev):
@@ -203,8 +313,15 @@ func _rebuild_headers() -> void:
 			var lbl := Label.new(); lbl.text = cname
 			lbl.add_theme_font_size_override("font_size", 13)
 			lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			if is_events: lbl.add_theme_color_override("font_color", Color(0.29,0.72,0.69))
+			lbl.add_theme_color_override("font_color", D_EVENT if is_events else D_INK)
 			row.add_child(lbl)
+		if is_events:
+			var lk := Label.new(); lk.text = "🔒"; lk.add_theme_font_size_override("font_size", 10)
+			lk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lk.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			lk.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			lk.add_theme_color_override("font_color", D_INKDIM)
+			row.add_child(lk)
 		_headers.add_child(row)
 	_headers_sig = ",".join(_view.channels())
 
@@ -299,12 +416,14 @@ func _apply_strip() -> void:
 
 func _add_payload_row(key: String, type_idx: int, value_text: String) -> void:
 	var row := HBoxContainer.new()
-	var k := LineEdit.new(); k.placeholder_text = "key"; k.text = key; k.custom_minimum_size.x = 90
-	var ty := OptionButton.new()
+	row.add_theme_constant_override("separation", 8)
+	var k := LineEdit.new(); k.placeholder_text = "key"; k.text = key; k.custom_minimum_size.x = 120
+	var ty := OptionButton.new(); ty.custom_minimum_size.x = 96
 	for tn in _PAYLOAD_TYPES: ty.add_item(tn)
 	ty.select(clampi(type_idx, 0, _PAYLOAD_TYPES.size() - 1))
-	var v := LineEdit.new(); v.placeholder_text = "value"; v.text = value_text; v.custom_minimum_size.x = 90
-	var rm := Button.new(); rm.text = "−"
+	var v := LineEdit.new(); v.placeholder_text = "value"; v.text = value_text; v.custom_minimum_size.x = 140
+	var rm := Button.new(); rm.text = "−"; rm.custom_minimum_size = Vector2(26, 0); _style_btn(rm)
+	rm.add_theme_color_override("font_color", D_INKDIM)
 	var entry := {"row": row, "key": k, "type": ty, "value": v}
 	k.text_submitted.connect(func(_s): _apply_payload())
 	k.focus_exited.connect(_apply_payload)

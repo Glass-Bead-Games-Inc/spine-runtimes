@@ -7,7 +7,19 @@ const PAD := 6.0
 const HIT_PX := 9.0
 const LABEL_MAX := 120.0
 const MAGNET_PX := 10.0
-const FLAG_H := 22.0
+const FLAG_H := 24.0
+
+# palette (matches the approved mock)
+const C_LANE := Color(0.122, 0.129, 0.149)      # #1f2126
+const C_LANE_ALT := Color(0.137, 0.149, 0.188)  # events row tint
+const C_ROWLINE := Color(0.20, 0.212, 0.247)
+const C_RULER := Color(0.42, 0.44, 0.50)
+const C_TICK := Color(0.32, 0.34, 0.40)
+const C_QLABEL := Color(0.55, 0.58, 0.66)
+const C_NOTIFY := Color(0.878, 0.600, 0.243)    # #e0993e
+const C_NOTIFY_SEL := Color(1.0, 0.792, 0.29)   # #ffca4a
+const C_EVENT := Color(0.286, 0.718, 0.686)     # #49b7b0
+const C_PLAYHEAD := Color(0.949, 0.761, 0.290)  # #f2c24a
 
 var dock
 var playhead_time: float = 0.0
@@ -17,11 +29,29 @@ var _events: Array = []
 var _drag_notify = null
 var _drag_start_time := 0.0
 var _hovered = null                 # {kind, ref, row} or null
+var _flag_sb: StyleBoxFlat
+var _tip_sb: StyleBoxFlat
+var _chip_sb: StyleBoxFlat
 
 func setup(p_dock) -> void:
 	dock = p_dock
 	focus_mode = Control.FOCUS_CLICK
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_flag_sb = StyleBoxFlat.new()
+	_flag_sb.set_corner_radius_all(4)
+	_flag_sb.shadow_size = 2
+	_flag_sb.shadow_color = Color(0, 0, 0, 0.38)
+	_flag_sb.shadow_offset = Vector2(0, 1)
+	_tip_sb = StyleBoxFlat.new()
+	_tip_sb.bg_color = Color(0.071, 0.075, 0.102, 0.98)
+	_tip_sb.set_corner_radius_all(6)
+	_tip_sb.set_border_width_all(1)
+	_tip_sb.border_color = Color(0.20, 0.21, 0.25)
+	_tip_sb.shadow_size = 10
+	_tip_sb.shadow_color = Color(0, 0, 0, 0.5)
+	_chip_sb = StyleBoxFlat.new()
+	_chip_sb.set_corner_radius_all(9)
+	_chip_sb.set_content_margin_all(3)
 
 func refresh() -> void:
 	_hovered = null
@@ -265,70 +295,92 @@ func _draw() -> void:
 	var dur := duration()
 	var w := _track_width()
 	var left := _track_left()
-	draw_line(Vector2(left, RULER_H), Vector2(left + w, RULER_H), Color(0.5,0.5,0.55), 1.0)
+	# lane background + per-row tint/separators
+	draw_rect(Rect2(Vector2.ZERO, size), C_LANE, true)
+	var tks := tracks()
+	for i in tks.size():
+		var top := _row_top(i)
+		if tks[i].kind == "events":
+			draw_rect(Rect2(0, top, size.x, LANE_H), C_LANE_ALT, true)
+		draw_line(Vector2(0, top), Vector2(size.x, top), C_ROWLINE, 1.0)
+	# ruler baseline + frame ticks + quarter labels
+	draw_line(Vector2(left, RULER_H), Vector2(left + w, RULER_H), C_RULER, 1.0)
 	if snap_enabled and fps > 0.0:
 		var frames := int(dur * fps)
 		for f in range(frames + 1):
 			var fx := x_from_time(f / fps)
-			draw_line(Vector2(fx, RULER_H - 4), Vector2(fx, RULER_H), Color(0.4,0.4,0.45), 1.0)
+			draw_line(Vector2(fx, RULER_H - 4), Vector2(fx, RULER_H), C_TICK, 1.0)
 	for q in range(5):
 		var qx := left + w * q / 4.0
-		draw_string(font, Vector2(qx + 2, 14), "%.2f" % (dur * q / 4.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0.6,0.62,0.7))
-	var tks := tracks()
+		draw_string(font, Vector2(qx + 2, 15), "%.2f" % (dur * q / 4.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, C_QLABEL)
+	# markers on top of the row backgrounds
 	for i in tks.size():
-		var top := _row_top(i)
-		draw_line(Vector2(left, top), Vector2(left + w, top), Color(0.22,0.23,0.28), 1.0)
 		var tk: Dictionary = tks[i]
 		if tk.kind == "events":
 			for e in _events:
-				_draw_flag(x_from_time(e.get("time", 0.0)), _row_center(i), String(e.get("name","event")), Color(0.29,0.72,0.69), false, font, fsize)
+				_draw_flag(x_from_time(e.get("time", 0.0)), _row_center(i), String(e.get("name", "event")), C_EVENT, false, font, fsize)
 		else:
 			for n in _notifies_in_channel(tk.channel):
 				var sel: bool = (dock._selected_notify == n)
-				var col := Color(1.0,0.79,0.29) if sel else Color(0.88,0.60,0.24)
-				_draw_flag(x_from_time(n.time), _row_center(i), n.notify_name, col, sel, font, fsize)
+				_draw_flag(x_from_time(n.time), _row_center(i), n.notify_name, C_NOTIFY_SEL if sel else C_NOTIFY, sel, font, fsize)
+	# playhead with a cap
 	var px := x_from_time(playhead_time)
-	draw_line(Vector2(px, RULER_H - 6), Vector2(px, size.y), Color(0.95,0.76,0.29), 2.0)
+	draw_line(Vector2(px, RULER_H - 8), Vector2(px, size.y), C_PLAYHEAD, 2.0)
+	draw_colored_polygon(PackedVector2Array([Vector2(px - 5, RULER_H - 9), Vector2(px + 5, RULER_H - 9), Vector2(px, RULER_H - 2)]), C_PLAYHEAD)
 	if _hovered != null:
 		_draw_tooltip(font)
 
 func _draw_flag(cx: float, cy: float, label: String, col: Color, sel: bool, font: Font, fsize: int) -> void:
 	var txt := _elide(label, font, fsize)
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
-	var bw := tw + 16.0
+	var bw := tw + 18.0
 	var half := FLAG_H * 0.5
-	var rect := Rect2(cx + 3, cy - half, bw, FLAG_H)
-	var nub := PackedVector2Array([Vector2(cx, cy), Vector2(cx + 5, cy - 5), Vector2(cx + 5, cy + 5)])
-	draw_colored_polygon(nub, col)
-	draw_rect(rect, col, true)
+	var rect := Rect2(cx + 5, cy - half, bw, FLAG_H)
+	# pointer nub at the exact time
+	draw_colored_polygon(PackedVector2Array([Vector2(cx, cy), Vector2(cx + 7, cy - 5), Vector2(cx + 7, cy + 5)]), col.darkened(0.08))
+	_flag_sb.bg_color = col
 	if sel:
-		draw_rect(rect.grow(1.5), Color(1,1,1,0.85), false, 1.5)
-	var ink := Color(0.10,0.09,0.05) if col.get_luminance() > 0.5 else Color(1,1,1,0.92)
-	draw_string(font, Vector2(cx + 11, cy + fsize * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, ink)
+		_flag_sb.set_border_width_all(2)
+		_flag_sb.border_color = Color(1, 1, 1, 0.9)
+	else:
+		_flag_sb.set_border_width_all(0)
+	draw_style_box(_flag_sb, rect)
+	var ink := Color(0.11, 0.09, 0.04) if col.get_luminance() > 0.5 else Color(1, 1, 1, 0.95)
+	draw_string(font, Vector2(cx + 14, cy + fsize * 0.34), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, ink)
 
 func _draw_tooltip(font: Font) -> void:
 	var ref = _hovered.ref
 	var is_ev: bool = _hovered.kind == "event"
 	var t: float = ref.get("time", 0.0) if is_ev else ref.time
-	var nm: String = String(ref.get("name","event")) if is_ev else ref.notify_name
-	var lines: Array = []
-	lines.append(nm + ("  (event)" if is_ev else "  (%s)" % ref.channel))
-	lines.append("%.3f s · f%d" % [t, int(round(t * fps))])
+	var nm: String = String(ref.get("name", "event")) if is_ev else ref.notify_name
+	var chip: String = "event" if is_ev else String(ref.channel)
+	var chip_col: Color = C_EVENT if is_ev else C_NOTIFY
+	var rows: Array = []
+	rows.append(["time", "%.3f s · f%d" % [t, int(round(t * fps))]])
 	if not is_ev:
-		lines.append("%d payload key(s)" % ref.payload.size())
-	var fsize := 12
-	var wmax := 0.0
-	for ln in lines:
-		wmax = max(wmax, font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x)
-	var bw := wmax + 16.0
-	var bh := lines.size() * (fsize + 6) + 8.0
-	var cx: float = clamp(x_from_time(t) + 8.0, 2.0, max(2.0, size.x - bw - 2.0))
-	var cy: float = max(2.0, _row_center(_hovered.row) - bh - 10.0)
-	var box := Rect2(cx, cy, bw, bh)
-	draw_rect(box, Color(0.07,0.075,0.1,0.97), true)
-	draw_rect(box, Color(0.3,0.32,0.38), false, 1.0)
-	var yy := cy + fsize + 4.0
-	for idx in lines.size():
-		var c := Color(1,1,1,0.95) if idx == 0 else Color(0.7,0.72,0.8)
-		draw_string(font, Vector2(cx + 8, yy), lines[idx], HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, c)
-		yy += fsize + 6
+		var pk: Array = ref.payload.keys()
+		for k in pk:
+			rows.append([str(k), str(ref.payload[k])])
+	var title_fs := 13
+	var row_fs := 12
+	var nmw := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, title_fs).x
+	var chipw := font.get_string_size(chip, HORIZONTAL_ALIGNMENT_LEFT, -1, 10).x + 12.0
+	var lblw := 0.0
+	var valw := 0.0
+	for r in rows:
+		lblw = max(lblw, font.get_string_size(r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, row_fs).x)
+		valw = max(valw, font.get_string_size(r[1], HORIZONTAL_ALIGNMENT_LEFT, -1, row_fs).x)
+	var bw: float = max(nmw + chipw + 24.0, lblw + valw + 34.0)
+	var bh: float = 10.0 + title_fs + 8.0 + rows.size() * (row_fs + 5) + 6.0
+	var bx: float = clamp(x_from_time(t) + 10.0, 2.0, max(2.0, size.x - bw - 2.0))
+	var by: float = max(2.0, _row_center(_hovered.row) - bh - 12.0)
+	draw_style_box(_tip_sb, Rect2(bx, by, bw, bh))
+	draw_string(font, Vector2(bx + 11, by + 10 + title_fs * 0.8), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, title_fs, Color(1, 1, 1, 0.96))
+	_chip_sb.bg_color = Color(chip_col.r, chip_col.g, chip_col.b, 0.22)
+	draw_style_box(_chip_sb, Rect2(bx + 11 + nmw + 8, by + 9, chipw, 16))
+	draw_string(font, Vector2(bx + 11 + nmw + 14, by + 20), chip, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, chip_col)
+	var yy := by + 10.0 + title_fs + 12.0
+	for r in rows:
+		draw_string(font, Vector2(bx + 11, yy), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, row_fs, Color(0.60, 0.63, 0.72))
+		draw_string(font, Vector2(bx + 11 + lblw + 14, yy), r[1], HORIZONTAL_ALIGNMENT_LEFT, -1, row_fs, Color(0.90, 0.92, 0.97))
+		yy += row_fs + 5
