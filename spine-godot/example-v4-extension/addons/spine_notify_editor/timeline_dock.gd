@@ -18,7 +18,7 @@ var _headers: VBoxContainer
 var _headers_sig: String = ""
 var _strip: VBoxContainer
 var _name_edit: LineEdit
-var _channel_edit: LineEdit
+var _channel_chip: Label
 var _selected_notify
 var _payload_box: VBoxContainer
 var _payload_rows: Array = []          # each: {row, key, type, value}
@@ -37,8 +37,6 @@ var _loop_btn: CheckButton
 var _snap_btn: CheckButton
 var _time_label: Label
 var _extra_channels: Array = []
-var _new_channel_edit: LineEdit
-var _add_channel_btn: Button
 
 func setup(p_undo_redo, p_editor_interface) -> void:
 	undo_redo = p_undo_redo
@@ -70,14 +68,6 @@ func _build_ui() -> void:
 	_toolbar.add_child(_snap_btn)
 	_time_label = Label.new()
 	_toolbar.add_child(_time_label)
-	_new_channel_edit = LineEdit.new()
-	_new_channel_edit.placeholder_text = "new channel…"
-	_new_channel_edit.custom_minimum_size.x = 100
-	_new_channel_edit.text_submitted.connect(func(_s): _add_channel())
-	_toolbar.add_child(_new_channel_edit)
-	_add_channel_btn = Button.new(); _add_channel_btn.text = "+ Channel"
-	_add_channel_btn.pressed.connect(_add_channel)
-	_toolbar.add_child(_add_channel_btn)
 	set_process(true)
 
 	_timeline_row = HBoxContainer.new()
@@ -102,12 +92,12 @@ func _build_ui() -> void:
 	_name_edit = LineEdit.new(); _name_edit.placeholder_text = "name"
 	_name_edit.text_submitted.connect(func(_s): _apply_strip())
 	_name_edit.focus_exited.connect(_apply_strip)
-	_channel_edit = LineEdit.new(); _channel_edit.placeholder_text = "channel"
-	_channel_edit.text_submitted.connect(func(_s): _apply_strip())
-	_channel_edit.focus_exited.connect(_apply_strip)
+	_channel_chip = Label.new()
+	_channel_chip.add_theme_font_size_override("font_size", 12)
+	_channel_chip.add_theme_color_override("font_color", Color(0.88,0.60,0.24))
 	var insp := Button.new(); insp.text = "Edit in Inspector"
 	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
-	row1.add_child(_name_edit); row1.add_child(_channel_edit); row1.add_child(insp)
+	row1.add_child(_name_edit); row1.add_child(_channel_chip); row1.add_child(insp)
 	_strip.add_child(row1)
 	_payload_box = VBoxContainer.new()
 	_strip.add_child(_payload_box)
@@ -227,15 +217,6 @@ func ensure_track() -> void:
 			player.notify_track = t
 		track = player.notify_track
 
-func _add_channel() -> void:
-	var cname: String = _new_channel_edit.text.strip_edges()
-	if cname == "": return
-	if not (cname in _extra_channels): _extra_channels.append(cname)
-	_new_channel_edit.text = ""
-	if _view:
-		_view.refresh()
-		_view.queue_redraw()
-
 func _add_named_channel(cname: String) -> void:
 	var nm: String = cname.strip_edges()
 	if nm == "": return
@@ -275,7 +256,7 @@ func edit_notify(n) -> void:
 	_clear_payload_rows()
 	if n != null:
 		_name_edit.text = n.notify_name
-		_channel_edit.text = n.channel
+		_channel_chip.text = "  " + n.channel
 		for key in n.payload.keys():
 			var val = n.payload[key]
 			_add_payload_row(str(key), _type_index_of(val), str(val))
@@ -284,21 +265,17 @@ func edit_notify(n) -> void:
 func _apply_strip() -> void:
 	if _selected_notify == null: return
 	var new_name: String = _name_edit.text
-	var new_channel: String = _channel_edit.text
-	if new_name == _selected_notify.notify_name and new_channel == _selected_notify.channel:
+	if new_name == _selected_notify.notify_name:
 		return
 	if undo_redo:
-		undo_redo.create_action("Edit Notify")
+		undo_redo.create_action("Rename Notify")
 		undo_redo.add_do_property(_selected_notify, "notify_name", new_name)
-		undo_redo.add_do_property(_selected_notify, "channel", new_channel)
 		undo_redo.add_undo_property(_selected_notify, "notify_name", _selected_notify.notify_name)
-		undo_redo.add_undo_property(_selected_notify, "channel", _selected_notify.channel)
 		undo_redo.commit_action()
 	else:
 		_selected_notify.notify_name = new_name
-		_selected_notify.channel = new_channel
 	if track: track.emit_changed()
-	if _view: _view.refresh()
+	if _view: _view.queue_redraw()
 
 func _add_payload_row(key: String, type_idx: int, value_text: String) -> void:
 	var row := HBoxContainer.new()
@@ -385,7 +362,7 @@ func _displayed_signature() -> String:
 		var k: String = e.key.text.strip_edges()
 		if k == "": continue
 		d[k] = _parse_payload_value(e.type.selected, e.value.text)
-	return "%s|%s|%d" % [_name_edit.text, _channel_edit.text, d.hash()]
+	return "%s|%s|%d" % [_name_edit.text, _selected_notify.channel, d.hash()]
 
 func _sync_strip_if_stale() -> void:
 	if _selected_notify == null or not is_instance_valid(_selected_notify): return
