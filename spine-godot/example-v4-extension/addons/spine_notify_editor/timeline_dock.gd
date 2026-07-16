@@ -38,7 +38,7 @@ func setup(p_undo_redo, p_editor_interface) -> void:
 	_build_ui()
 
 func _build_ui() -> void:
-	custom_minimum_size = Vector2(0, 220)
+	custom_minimum_size = Vector2(0, 240)
 	_placeholder = Label.new()
 	_placeholder.text = "Select a SpineAnimationPlayer to edit its notifies."
 	add_child(_placeholder)
@@ -150,7 +150,7 @@ func _apply_strip() -> void:
 		_selected_notify.notify_name = new_name
 		_selected_notify.channel = new_channel
 	if track: track.emit_changed()
-	if _view: _view.queue_redraw()
+	if _view: _view.refresh()
 
 func _add_payload_row(key: String, type_idx: int, value_text: String) -> void:
 	var row := HBoxContainer.new()
@@ -218,6 +218,33 @@ func _apply_payload() -> void:
 	if track: track.emit_changed()
 	if _view: _view.queue_redraw()
 
+func _strip_has_focus() -> bool:
+	if _strip == null: return false
+	var vp := get_viewport()
+	if vp == null: return false
+	var f = vp.gui_get_focus_owner()
+	return f != null and _strip.is_ancestor_of(f)
+
+func _notify_signature(n) -> String:
+	if n == null or not is_instance_valid(n): return ""
+	return "%s|%s|%d" % [n.notify_name, n.channel, n.payload.hash()]
+
+func _displayed_signature() -> String:
+	if _selected_notify == null: return ""
+	var d := {}
+	for e in _payload_rows:
+		if not is_instance_valid(e.key): continue
+		var k: String = e.key.text.strip_edges()
+		if k == "": continue
+		d[k] = _parse_payload_value(e.type.selected, e.value.text)
+	return "%s|%s|%d" % [_name_edit.text, _channel_edit.text, d.hash()]
+
+func _sync_strip_if_stale() -> void:
+	if _selected_notify == null or not is_instance_valid(_selected_notify): return
+	if _strip_has_focus(): return
+	if _notify_signature(_selected_notify) != _displayed_signature():
+		edit_notify(_selected_notify)
+
 func _prune_selection() -> void:
 	if _selected_notify != null and track != null and not (_selected_notify in track.notifies):
 		edit_notify(null)
@@ -233,6 +260,7 @@ func _process(delta: float) -> void:
 		_view.set_playhead(t)
 	if _view.is_visible_in_tree():
 		_prune_selection()
+		_sync_strip_if_stale()
 		_view.queue_redraw()
 	if _time_label and _view:
 		_time_label.text = "  %.2f / %.2f" % [_view.playhead_time, _view.duration()]
