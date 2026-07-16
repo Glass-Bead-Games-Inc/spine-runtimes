@@ -156,24 +156,59 @@ func _stop() -> void:
 func _rebuild_headers() -> void:
 	if _headers == null: return
 	for c in _headers.get_children():
-		c.free()   # immediate, not queue_free(): _rebuild_headers() can run twice in one frame
-	# top cell (ruler height) — "+ New track" is wired in a later task; a placeholder for now
-	var top := Control.new()
-	top.custom_minimum_size = Vector2(0, 28)   # RULER_H
+		_headers.remove_child(c)
+		c.queue_free()
+	var top := HBoxContainer.new()
+	top.custom_minimum_size = Vector2(0, 28)
+	var addbtn := Button.new()
+	addbtn.text = "＋ New track"
+	addbtn.tooltip_text = "Add a named channel track"
+	var addfield := LineEdit.new()
+	addfield.placeholder_text = "channel name…"
+	addfield.visible = false
+	addfield.custom_minimum_size = Vector2(120, 0)
+	addbtn.pressed.connect(func():
+		addbtn.visible = false; addfield.visible = true; addfield.grab_focus())
+	addfield.text_submitted.connect(func(s):
+		_add_named_channel(s))
+	addfield.focus_exited.connect(func():
+		addfield.visible = false; addbtn.visible = true)
+	top.add_child(addbtn); top.add_child(addfield)
 	_headers.add_child(top)
 	for tk in _view.tracks():
 		var row := HBoxContainer.new()
-		row.custom_minimum_size = Vector2(0, 36)  # LANE_H
-		var sw := ColorRect.new()
-		sw.custom_minimum_size = Vector2(9, 9)
+		row.custom_minimum_size = Vector2(0, 36)
+		var sw := ColorRect.new(); sw.custom_minimum_size = Vector2(9, 9)
 		sw.color = Color(0.29,0.72,0.69) if tk.kind == "events" else Color(0.88,0.60,0.24)
 		row.add_child(sw)
-		var lbl := Label.new()
-		lbl.text = "Events" if tk.kind == "events" else String(tk.channel)
-		lbl.add_theme_font_size_override("font_size", 13)
-		row.add_child(lbl)
+		var is_events: bool = tk.kind == "events"
+		var cname: String = "Events" if is_events else String(tk.channel)
+		var renameable: bool = (not is_events) and cname != "default"
+		if renameable:
+			var nb := Button.new(); nb.flat = true; nb.text = cname
+			nb.add_theme_font_size_override("font_size", 13)
+			nb.tooltip_text = "Double-click to rename"
+			nb.gui_input.connect(func(ev):
+				if ev is InputEventMouseButton and ev.double_click and ev.pressed:
+					_begin_rename(row, nb, cname))
+			row.add_child(nb)
+		else:
+			var lbl := Label.new(); lbl.text = cname
+			lbl.add_theme_font_size_override("font_size", 13)
+			if is_events: lbl.add_theme_color_override("font_color", Color(0.29,0.72,0.69))
+			row.add_child(lbl)
 		_headers.add_child(row)
 	_headers_sig = ",".join(_view.channels())
+
+func _begin_rename(row: HBoxContainer, name_btn: Button, cur: String) -> void:
+	name_btn.visible = false
+	var ed := LineEdit.new(); ed.text = cur; ed.custom_minimum_size = Vector2(120, 0)
+	ed.select_all()
+	row.add_child(ed); ed.grab_focus()
+	ed.text_submitted.connect(func(s): _rename_channel(cur, s))     # _rebuild_headers replaces the row
+	ed.focus_exited.connect(func():
+		if is_instance_valid(ed): ed.queue_free()
+		name_btn.visible = true)
 
 func _header_row_count() -> int:
 	# header rows excluding the top ruler-height cell
@@ -200,6 +235,39 @@ func _add_channel() -> void:
 	if _view:
 		_view.refresh()
 		_view.queue_redraw()
+
+func _add_named_channel(cname: String) -> void:
+	var nm: String = cname.strip_edges()
+	if nm == "": return
+	if nm in _view.channels(): return
+	if not (nm in _extra_channels): _extra_channels.append(nm)
+	_rebuild_headers()
+	if _view: _view.refresh()
+
+func _rename_channel(old_name: String, new_name: String) -> void:
+	var nn: String = new_name.strip_edges()
+	if nn == "" or nn == old_name or old_name == "default": return
+	if nn in _view.channels(): return                 # duplicate rejected
+	# re-tag current-animation notifies in that lane (one undoable action)
+	var targets: Array = []
+	if track != null:
+		var anim: String = _current_animation()
+		for n in track.notifies:
+			if n != null and n.animation_name == anim and (n.channel if n.channel != "" else "default") == old_name:
+				targets.append(n)
+	if undo_redo and not targets.is_empty():
+		undo_redo.create_action("Rename Notify Channel")
+		for n in targets:
+			undo_redo.add_do_property(n, "channel", nn)
+			undo_redo.add_undo_property(n, "channel", n.channel)
+		undo_redo.commit_action()
+	else:
+		for n in targets: n.channel = nn
+	if old_name in _extra_channels:
+		_extra_channels[_extra_channels.find(old_name)] = nn
+	if track: track.emit_changed()
+	_rebuild_headers()
+	if _view: _view.refresh()
 
 func edit_notify(n) -> void:
 	_selected_notify = n
