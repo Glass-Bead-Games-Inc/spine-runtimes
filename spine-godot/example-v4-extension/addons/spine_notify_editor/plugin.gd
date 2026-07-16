@@ -24,5 +24,13 @@ func _on_selection_changed() -> void:
 	var player = null
 	for n in get_editor_interface().get_selection().get_selected_nodes():
 		if n is SpineAnimationPlayer:
-			player = n; break
+			player = n
+			break
+		if n is SpineSprite3D:
+			for c in n.get_children():
+				if c is SpineAnimationPlayer:
+					player = c
+					break
+			if player != null:
+				break
 	_dock.bind(player)

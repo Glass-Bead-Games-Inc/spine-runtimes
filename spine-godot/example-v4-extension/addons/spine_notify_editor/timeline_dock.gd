@@ -66,6 +66,8 @@ func _build_ui() -> void:
 	_name_edit.text_submitted.connect(func(_s): _apply_strip())
 	_channel_edit = LineEdit.new(); _channel_edit.placeholder_text = "channel"
 	_channel_edit.text_submitted.connect(func(_s): _apply_strip())
+	_name_edit.focus_exited.connect(_apply_strip)
+	_channel_edit.focus_exited.connect(_apply_strip)
 	var insp := Button.new(); insp.text = "Edit in Inspector"
 	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
 	_strip.add_child(Label.new()); _strip.get_child(0).text = "notify:"
@@ -98,10 +100,26 @@ func edit_notify(n) -> void:
 
 func _apply_strip() -> void:
 	if _selected_notify == null: return
-	_selected_notify.notify_name = _name_edit.text
-	_selected_notify.channel = _channel_edit.text
+	var new_name: String = _name_edit.text
+	var new_channel: String = _channel_edit.text
+	if new_name == _selected_notify.notify_name and new_channel == _selected_notify.channel:
+		return
+	if undo_redo:
+		undo_redo.create_action("Edit Notify")
+		undo_redo.add_do_property(_selected_notify, "notify_name", new_name)
+		undo_redo.add_do_property(_selected_notify, "channel", new_channel)
+		undo_redo.add_undo_property(_selected_notify, "notify_name", _selected_notify.notify_name)
+		undo_redo.add_undo_property(_selected_notify, "channel", _selected_notify.channel)
+		undo_redo.commit_action()
+	else:
+		_selected_notify.notify_name = new_name
+		_selected_notify.channel = new_channel
 	if track: track.emit_changed()
 	if _view: _view.queue_redraw()
+
+func _prune_selection() -> void:
+	if _selected_notify != null and track != null and not (_selected_notify in track.notifies):
+		edit_notify(null)
 
 func _process(delta: float) -> void:
 	if _view == null: return
@@ -112,6 +130,9 @@ func _process(delta: float) -> void:
 			t = 0.0 if loop_enabled else dur
 			if not loop_enabled: playing = false; _play_btn.text = "Play"
 		_view.set_playhead(t)
+	if _view.is_visible_in_tree():
+		_prune_selection()
+		_view.queue_redraw()
 	if _time_label and _view:
 		_time_label.text = "  %.2f / %.2f" % [_view.playhead_time, _view.duration()]
 
@@ -138,7 +159,9 @@ func bind(p_player) -> void:
 				if a != null: animation_names.append(a.get_name())
 	_refresh_toolbar()
 	_set_active(player != null)
-	if _view: _view.refresh()
+	if _view:
+		_view.refresh()
+		_view.set_playhead(0.0)
 
 func _refresh_toolbar() -> void:
 	if _anim_dropdown == null: return
@@ -152,14 +175,14 @@ func _current_animation() -> String:
 	return ""
 
 func _on_animation_changed() -> void:
-	if _view: _view.refresh()
+	edit_notify(null)
+	if _view:
+		_view.set_playhead(0.0)
+		_view.refresh()
 
 func select_animation(anim: String) -> void:
 	for i in _anim_dropdown.item_count:
 		if _anim_dropdown.get_item_text(i) == anim:
 			_anim_dropdown.select(i)
 			break
-	_on_animation_changed()
-
-func _on_animation_changed_external() -> void:
 	_on_animation_changed()
