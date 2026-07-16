@@ -13,10 +13,14 @@ var _placeholder: Label
 var _toolbar: HBoxContainer
 var _anim_dropdown: OptionButton
 var _view                           # timeline_view
-var _strip: HBoxContainer
+var _strip: VBoxContainer
 var _name_edit: LineEdit
 var _channel_edit: LineEdit
 var _selected_notify
+var _payload_box: VBoxContainer
+var _payload_rows: Array = []          # each: {row, key, type, value}
+var _add_key_btn: Button
+const _PAYLOAD_TYPES := ["String", "int", "float", "bool"]
 
 var playing: bool = false
 var loop_enabled: bool = true
@@ -72,17 +76,24 @@ func _build_ui() -> void:
 	_view.setup(self)
 	add_child(_view)
 
-	_strip = HBoxContainer.new()
+	_strip = VBoxContainer.new()
+	var row1 := HBoxContainer.new()
+	row1.add_child(Label.new()); row1.get_child(0).text = "notify:"
 	_name_edit = LineEdit.new(); _name_edit.placeholder_text = "name"
 	_name_edit.text_submitted.connect(func(_s): _apply_strip())
+	_name_edit.focus_exited.connect(_apply_strip)
 	_channel_edit = LineEdit.new(); _channel_edit.placeholder_text = "channel"
 	_channel_edit.text_submitted.connect(func(_s): _apply_strip())
-	_name_edit.focus_exited.connect(_apply_strip)
 	_channel_edit.focus_exited.connect(_apply_strip)
 	var insp := Button.new(); insp.text = "Edit in Inspector"
 	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
-	_strip.add_child(Label.new()); _strip.get_child(0).text = "notify:"
-	_strip.add_child(_name_edit); _strip.add_child(_channel_edit); _strip.add_child(insp)
+	row1.add_child(_name_edit); row1.add_child(_channel_edit); row1.add_child(insp)
+	_strip.add_child(row1)
+	_payload_box = VBoxContainer.new()
+	_strip.add_child(_payload_box)
+	_add_key_btn = Button.new(); _add_key_btn.text = "+ Add key"
+	_add_key_btn.pressed.connect(_on_add_key)
+	_strip.add_child(_add_key_btn)
 	add_child(_strip)
 	_strip.visible = false
 
@@ -113,9 +124,13 @@ func _add_channel() -> void:
 func edit_notify(n) -> void:
 	_selected_notify = n
 	_strip.visible = n != null
+	_clear_payload_rows()
 	if n != null:
 		_name_edit.text = n.notify_name
 		_channel_edit.text = n.channel
+		for key in n.payload.keys():
+			var val = n.payload[key]
+			_add_payload_row(str(key), _type_index_of(val), str(val))
 	if _view: _view.queue_redraw()
 
 func _apply_strip() -> void:
@@ -134,6 +149,72 @@ func _apply_strip() -> void:
 	else:
 		_selected_notify.notify_name = new_name
 		_selected_notify.channel = new_channel
+	if track: track.emit_changed()
+	if _view: _view.queue_redraw()
+
+func _add_payload_row(key: String, type_idx: int, value_text: String) -> void:
+	var row := HBoxContainer.new()
+	var k := LineEdit.new(); k.placeholder_text = "key"; k.text = key; k.custom_minimum_size.x = 90
+	var ty := OptionButton.new()
+	for tn in _PAYLOAD_TYPES: ty.add_item(tn)
+	ty.select(clampi(type_idx, 0, _PAYLOAD_TYPES.size() - 1))
+	var v := LineEdit.new(); v.placeholder_text = "value"; v.text = value_text; v.custom_minimum_size.x = 90
+	var rm := Button.new(); rm.text = "−"
+	var entry := {"row": row, "key": k, "type": ty, "value": v}
+	k.text_submitted.connect(func(_s): _apply_payload())
+	k.focus_exited.connect(_apply_payload)
+	v.text_submitted.connect(func(_s): _apply_payload())
+	v.focus_exited.connect(_apply_payload)
+	ty.item_selected.connect(func(_i): _apply_payload())
+	rm.pressed.connect(func(): _remove_payload_row(entry))
+	row.add_child(k); row.add_child(ty); row.add_child(v); row.add_child(rm)
+	_payload_box.add_child(row)
+	_payload_rows.append(entry)
+
+func _remove_payload_row(entry) -> void:
+	_payload_rows.erase(entry)
+	if is_instance_valid(entry.row): entry.row.queue_free()
+	_apply_payload()
+
+func _on_add_key() -> void:
+	_add_payload_row("", 0, "")
+
+func _clear_payload_rows() -> void:
+	for e in _payload_rows:
+		if is_instance_valid(e.row): e.row.queue_free()
+	_payload_rows = []
+
+func _type_index_of(val) -> int:
+	match typeof(val):
+		TYPE_INT: return 1
+		TYPE_FLOAT: return 2
+		TYPE_BOOL: return 3
+		_: return 0
+
+func _parse_payload_value(type_idx: int, text: String):
+	match type_idx:
+		1: return text.to_int()
+		2: return text.to_float()
+		3: return text.strip_edges().to_lower() in ["true", "1", "on", "yes"]
+		_: return text
+
+func _apply_payload() -> void:
+	if _selected_notify == null: return
+	var d := {}
+	for e in _payload_rows:
+		if not is_instance_valid(e.key): continue
+		var key: String = e.key.text.strip_edges()
+		if key == "": continue
+		d[key] = _parse_payload_value(e.type.selected, e.value.text)
+	if d.hash() == _selected_notify.payload.hash():
+		return
+	if undo_redo:
+		undo_redo.create_action("Edit Notify Payload")
+		undo_redo.add_do_property(_selected_notify, "payload", d)
+		undo_redo.add_undo_property(_selected_notify, "payload", _selected_notify.payload)
+		undo_redo.commit_action()
+	else:
+		_selected_notify.payload = d
 	if track: track.emit_changed()
 	if _view: _view.queue_redraw()
 
