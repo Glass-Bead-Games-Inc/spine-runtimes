@@ -54,11 +54,11 @@
 #include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/mesh.hpp>
-#include <godot_cpp/classes/world3d.hpp>      // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
-#include <godot_cpp/classes/image.hpp>        // Fix #2: Texture2D::get_image() return type
-#include <godot_cpp/classes/image_texture.hpp>// Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
-#include <godot_cpp/classes/camera3d.hpp>     // silhouette buffer: read the active camera's projection/transform
-#include <godot_cpp/classes/viewport.hpp>     // silhouette buffer: get_viewport()->get_camera_3d()/get_visible_rect()
+#include <godot_cpp/classes/world3d.hpp>         // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
+#include <godot_cpp/classes/image.hpp>           // Fix #2: Texture2D::get_image() return type
+#include <godot_cpp/classes/image_texture.hpp>   // Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
+#include <godot_cpp/classes/camera3d.hpp>        // silhouette buffer: read the active camera's projection/transform
+#include <godot_cpp/classes/viewport.hpp>        // silhouette buffer: get_viewport()->get_camera_3d()/get_visible_rect()
 #include <godot_cpp/classes/editor_interface.hpp>// design-time billboard: fall back to the editor 3D camera
 #include <godot_cpp/classes/sub_viewport.hpp>    // EditorInterface::get_editor_viewport_3d() return type
 #include <godot_cpp/variant/variant.hpp>
@@ -71,7 +71,7 @@
 #include "scene/3d/camera_3d.h"           // silhouette buffer: active camera projection/transform
 #include "scene/main/viewport.h"          // silhouette buffer: get_viewport()->get_camera_3d() (also declares SubViewport)
 #ifdef TOOLS_ENABLED
-#include "editor/editor_interface.h"      // design-time billboard: fall back to the editor 3D camera
+#include "editor/editor_interface.h"// design-time billboard: fall back to the editor 3D camera
 #endif
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
@@ -3078,8 +3078,10 @@ Transform3D SpineSprite3D::bone_to_transform3d(spine::Bone *bone, float slot_z) 
 	float in_plane_scale = col0.length();
 	if (in_plane_scale <= 0.0f) in_plane_scale = 1.0f;
 	Vector3 col2 = col0.cross(col1);
-	if (col2.length() <= 0.0f) col2 = Vector3(0, 0, in_plane_scale);
-	else col2 = col2.normalized() * in_plane_scale;
+	if (col2.length() <= 0.0f)
+		col2 = Vector3(0, 0, in_plane_scale);
+	else
+		col2 = col2.normalized() * in_plane_scale;
 
 	Basis basis;
 	basis.set_column(0, col0);

@@ -45,7 +45,11 @@ protected:
 	static void _bind_methods();
 
 public:
-	void set_notifies(const Array &v) { notifies = v; }
-	Array get_notifies() const { return notifies; }
+	void set_notifies(const Array &v) {
+		notifies = v;
+	}
+	Array get_notifies() const {
+		return notifies;
+	}
 };
 #endif

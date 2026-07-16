@@ -40,7 +40,8 @@
 
 void SpineAnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_on_before_apply", "spine_sprite"), &SpineAnimationPlayer::on_before_apply);
-	ClassDB::bind_method(D_METHOD("_on_spine_event", "spine_sprite", "animation_state", "track_entry", "event"), &SpineAnimationPlayer::on_spine_event);
+	ClassDB::bind_method(D_METHOD("_on_spine_event", "spine_sprite", "animation_state", "track_entry", "event"),
+						 &SpineAnimationPlayer::on_spine_event);
 	ClassDB::bind_method(D_METHOD("set_notify_track", "v"), &SpineAnimationPlayer::set_notify_track);
 	ClassDB::bind_method(D_METHOD("get_notify_track"), &SpineAnimationPlayer::get_notify_track);
 	ClassDB::bind_method(D_METHOD("set_forward_spine_events", "v"), &SpineAnimationPlayer::set_forward_spine_events);
@@ -48,12 +49,11 @@ void SpineAnimationPlayer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("play", "animation_name", "loop", "track"), &SpineAnimationPlayer::play, DEFVAL(true), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("seek", "time", "track"), &SpineAnimationPlayer::seek, DEFVAL(0));
 
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "notify_track", PROPERTY_HINT_RESOURCE_TYPE, "SpineNotifyTrack"), "set_notify_track", "get_notify_track");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "notify_track", PROPERTY_HINT_RESOURCE_TYPE, "SpineNotifyTrack"), "set_notify_track",
+				 "get_notify_track");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "forward_spine_events"), "set_forward_spine_events", "get_forward_spine_events");
 
-	ADD_SIGNAL(MethodInfo("notified",
-						  PropertyInfo(Variant::STRING, "name"),
-						  PropertyInfo(VARIANT_FLOAT, "time"),
+	ADD_SIGNAL(MethodInfo("notified", PropertyInfo(Variant::STRING, "name"), PropertyInfo(VARIANT_FLOAT, "time"),
 						  PropertyInfo(Variant::DICTIONARY, "payload")));
 }
 
@@ -134,8 +134,10 @@ void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {
 		bool jump = false;
 		if (!discontinuity_pending && prev_anim[i] == anim_name) {
 			float advance = ct - prev_track_time[i];
-			if (ts >= 0.0f) jump = (advance < 0.0f) || (advance > MAX_STEP);
-			else jump = (advance > 0.0f) || (advance < -MAX_STEP);
+			if (ts >= 0.0f)
+				jump = (advance < 0.0f) || (advance > MAX_STEP);
+			else
+				jump = (advance > 0.0f) || (advance < -MAX_STEP);
 		}
 		if (discontinuity_pending || prev_anim[i] != anim_name || jump) {
 			prev_anim[i] = anim_name;

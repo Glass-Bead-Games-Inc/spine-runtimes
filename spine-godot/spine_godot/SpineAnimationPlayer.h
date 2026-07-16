@@ -67,10 +67,18 @@ public:
 		}
 	}
 
-	void set_notify_track(const Ref<SpineNotifyTrack> &v) { notify_track = v; }
-	Ref<SpineNotifyTrack> get_notify_track() const { return notify_track; }
-	void set_forward_spine_events(bool v) { forward_spine_events = v; }
-	bool get_forward_spine_events() const { return forward_spine_events; }
+	void set_notify_track(const Ref<SpineNotifyTrack> &v) {
+		notify_track = v;
+	}
+	Ref<SpineNotifyTrack> get_notify_track() const {
+		return notify_track;
+	}
+	void set_forward_spine_events(bool v) {
+		forward_spine_events = v;
+	}
+	bool get_forward_spine_events() const {
+		return forward_spine_events;
+	}
 
 	void play(const String &animation_name, bool loop, int track);
 	void seek(float time, int track);

@@ -49,15 +49,35 @@ protected:
 	static void _bind_methods();
 
 public:
-	void set_animation_name(const String &v) { animation_name = v; }
-	String get_animation_name() const { return animation_name; }
-	void set_time(float v) { time = v; }
-	float get_time() const { return time; }
-	void set_notify_name(const String &v) { notify_name = v; }
-	String get_notify_name() const { return notify_name; }
-	void set_channel(const String &v) { channel = v; }
-	String get_channel() const { return channel; }
-	void set_payload(const Dictionary &v) { payload = v; }
-	Dictionary get_payload() const { return payload; }
+	void set_animation_name(const String &v) {
+		animation_name = v;
+	}
+	String get_animation_name() const {
+		return animation_name;
+	}
+	void set_time(float v) {
+		time = v;
+	}
+	float get_time() const {
+		return time;
+	}
+	void set_notify_name(const String &v) {
+		notify_name = v;
+	}
+	String get_notify_name() const {
+		return notify_name;
+	}
+	void set_channel(const String &v) {
+		channel = v;
+	}
+	String get_channel() const {
+		return channel;
+	}
+	void set_payload(const Dictionary &v) {
+		payload = v;
+	}
+	Dictionary get_payload() const {
+		return payload;
+	}
 };
 #endif

@@ -73,8 +73,9 @@ protected:
 	void free_debug();
 
 public:
-	SpineBoneNode3D() : bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true),
-						debug_bone(false), debug_thickness(8.0f), debug_color(Color(0, 1, 1, 0.6f)) {
+	SpineBoneNode3D()
+		: bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true), debug_bone(false), debug_thickness(8.0f),
+		  debug_color(Color(0, 1, 1, 0.6f)) {
 	}
 	~SpineBoneNode3D();
 

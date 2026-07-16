@@ -312,8 +312,10 @@ void SpineBoneNode3D::update_debug(SpineSprite3D *sprite) {
 	arrays[Mesh::ARRAY_COLOR] = colors;
 	arrays[Mesh::ARRAY_INDEX] = indices;
 
-	if (!debug_mesh.is_valid()) debug_mesh = rs->mesh_create();
-	else rs->mesh_clear(debug_mesh);
+	if (!debug_mesh.is_valid())
+		debug_mesh = rs->mesh_create();
+	else
+		rs->mesh_clear(debug_mesh);
 	rs->mesh_add_surface_from_arrays(debug_mesh, SPINE_RS_ENUM::PRIMITIVE_TRIANGLES, arrays);
 
 	if (!debug_material.is_valid()) {
