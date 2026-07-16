@@ -33,6 +33,7 @@ var _tp_bw_end: Button
 var _tp_stop: Button
 var _tp_start: Button
 var _tp_play: Button
+var _active_tp: Button
 var _loop_btn: CheckButton
 var _snap_btn: CheckButton
 var _time_label: Label
@@ -110,8 +111,10 @@ func _build_ui() -> void:
 	_set_active(false)
 
 func _editor_icon(nm: String) -> Texture2D:
-	if has_theme_icon(nm, "EditorIcons"):
-		return get_theme_icon(nm, "EditorIcons")
+	if editor_interface:
+		var base: Control = editor_interface.get_base_control()
+		if base and base.has_theme_icon(nm, "EditorIcons"):
+			return base.get_theme_icon(nm, "EditorIcons")
 	return null
 
 func _make_tp(icon_name: String, fallback: String, tip: String, fn: Callable) -> Button:
@@ -124,24 +127,34 @@ func _make_tp(icon_name: String, fallback: String, tip: String, fn: Callable) ->
 	_toolbar.add_child(b)
 	return b
 
+func _set_active_tp(b) -> void:
+	if _active_tp and is_instance_valid(_active_tp): _active_tp.modulate = Color(1, 1, 1)
+	_active_tp = b
+	if b: b.modulate = Color(0.55, 0.78, 1.0)
+
 func _play_from_start() -> void:
 	if _view: _view.set_playhead(0.0)
 	play_dir = 1; playing = true
+	_set_active_tp(_tp_start)
 
 func _play_from_current() -> void:
 	play_dir = 1; playing = true
+	_set_active_tp(_tp_play)
 
 func _play_bw_from_current() -> void:
 	play_dir = -1; playing = true
+	_set_active_tp(_tp_bw_from)
 
 func _play_bw_from_end() -> void:
 	if _view: _view.set_playhead(_view.duration())
 	play_dir = -1; playing = true
+	_set_active_tp(_tp_bw_end)
 
 func _stop() -> void:
 	if not playing and _view and _view.playhead_time > 0.0:
 		_view.set_playhead(0.0)     # second press when stopped -> rewind
 	playing = false
+	_set_active_tp(null)
 
 func _rebuild_headers() -> void:
 	if _headers == null: return
@@ -153,6 +166,8 @@ func _rebuild_headers() -> void:
 	var addbtn := Button.new()
 	addbtn.text = "＋ New track"
 	addbtn.tooltip_text = "Add a named channel track"
+	addbtn.custom_minimum_size = Vector2(0, 24)
+	addbtn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var addfield := LineEdit.new()
 	addfield.placeholder_text = "channel name…"
 	addfield.visible = false
@@ -170,6 +185,7 @@ func _rebuild_headers() -> void:
 		row.custom_minimum_size = Vector2(0, 36)
 		var sw := ColorRect.new(); sw.custom_minimum_size = Vector2(9, 9)
 		sw.color = Color(0.29,0.72,0.69) if tk.kind == "events" else Color(0.88,0.60,0.24)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(sw)
 		var is_events: bool = tk.kind == "events"
 		var cname: String = "Events" if is_events else String(tk.channel)
@@ -178,6 +194,7 @@ func _rebuild_headers() -> void:
 			var nb := Button.new(); nb.flat = true; nb.text = cname
 			nb.add_theme_font_size_override("font_size", 13)
 			nb.tooltip_text = "Double-click to rename"
+			nb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			nb.gui_input.connect(func(ev):
 				if ev is InputEventMouseButton and ev.double_click and ev.pressed:
 					_begin_rename(row, nb, cname))
@@ -185,6 +202,7 @@ func _rebuild_headers() -> void:
 		else:
 			var lbl := Label.new(); lbl.text = cname
 			lbl.add_theme_font_size_override("font_size", 13)
+			lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			if is_events: lbl.add_theme_color_override("font_color", Color(0.29,0.72,0.69))
 			row.add_child(lbl)
 		_headers.add_child(row)
@@ -249,6 +267,8 @@ func _rename_channel(old_name: String, new_name: String) -> void:
 	if track: track.emit_changed()
 	_rebuild_headers()
 	if _view: _view.refresh()
+	if _selected_notify != null and _selected_notify in targets:
+		edit_notify(_selected_notify)
 
 func edit_notify(n) -> void:
 	_selected_notify = n
@@ -376,15 +396,15 @@ func _prune_selection() -> void:
 
 func _process(delta: float) -> void:
 	if _view == null: return
-	if playing and _view.visible:
+	if playing and _view.is_visible_in_tree():
 		var dur: float = _view.duration()
 		var t: float = _view.playhead_time + play_dir * delta
 		if play_dir > 0 and t >= dur:
 			if loop_enabled: t = 0.0
-			else: t = dur; playing = false
+			else: t = dur; playing = false; _set_active_tp(null)
 		elif play_dir < 0 and t <= 0.0:
 			if loop_enabled: t = dur
-			else: t = 0.0; playing = false
+			else: t = 0.0; playing = false; _set_active_tp(null)
 		_view.set_playhead(t)
 	if _view.is_visible_in_tree():
 		_prune_selection()
@@ -394,7 +414,9 @@ func _process(delta: float) -> void:
 		if sig != _headers_sig:
 			_rebuild_headers()
 	if _time_label and _view:
-		_time_label.text = "  %.2f / %.2f" % [_view.playhead_time, _view.duration()]
+		var ph: float = _view.playhead_time
+		var du: float = _view.duration()
+		_time_label.text = "  %.2f s · f%d / %d · %.2f s" % [ph, int(round(ph * _view.fps)), int(_view.fps), du]
 
 func _set_active(active: bool) -> void:
 	if _placeholder: _placeholder.visible = not active
@@ -425,6 +447,8 @@ func bind(p_player) -> void:
 	_set_active(player != null)
 	if _view:
 		_view.refresh()
+		playing = false
+		_set_active_tp(null)
 		_view.set_playhead(0.0)
 
 func _refresh_toolbar() -> void:
@@ -441,6 +465,8 @@ func _current_animation() -> String:
 func _on_animation_changed() -> void:
 	edit_notify(null)
 	if _view:
+		playing = false
+		_set_active_tp(null)
 		_view.set_playhead(0.0)
 		_view.refresh()
 

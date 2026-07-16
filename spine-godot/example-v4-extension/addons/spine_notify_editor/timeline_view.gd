@@ -24,6 +24,7 @@ func setup(p_dock) -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 func refresh() -> void:
+	_hovered = null
 	fps = _skeleton_fps()
 	_events = _load_events()
 	custom_minimum_size.y = RULER_H + tracks().size() * LANE_H + PAD
