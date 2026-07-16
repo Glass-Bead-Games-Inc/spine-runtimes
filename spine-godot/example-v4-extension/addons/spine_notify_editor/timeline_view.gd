@@ -171,6 +171,8 @@ func add_notify_at(t: float, channel: String) -> void:
 
 func delete_notify(n) -> void:
 	if dock.track == null or n == null: return
+	if _hovered != null and _hovered.ref == n:
+		_hovered = null
 	var arr: Array = dock.track.notifies.duplicate()
 	arr.erase(n)
 	_set_notifies(arr, "Delete Notify")

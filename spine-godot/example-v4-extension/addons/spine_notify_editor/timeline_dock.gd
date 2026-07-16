@@ -310,6 +310,7 @@ func _process(delta: float) -> void:
 func _set_active(active: bool) -> void:
 	if _placeholder: _placeholder.visible = not active
 	if _toolbar: _toolbar.visible = active
+	if _timeline_row: _timeline_row.visible = active
 	if _view: _view.visible = active
 
 func bind(p_player) -> void:
