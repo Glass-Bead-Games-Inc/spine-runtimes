@@ -13,6 +13,9 @@ var _placeholder: Label
 var _toolbar: HBoxContainer
 var _anim_dropdown: OptionButton
 var _view                           # timeline_view
+var _timeline_row: HBoxContainer
+var _headers: VBoxContainer
+var _headers_sig: String = ""
 var _strip: VBoxContainer
 var _name_edit: LineEdit
 var _channel_edit: LineEdit
@@ -70,11 +73,21 @@ func _build_ui() -> void:
 	_toolbar.add_child(_add_channel_btn)
 	set_process(true)
 
+	_timeline_row = HBoxContainer.new()
+	_timeline_row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_timeline_row.add_theme_constant_override("separation", 0)
+	_headers = VBoxContainer.new()
+	_headers.custom_minimum_size = Vector2(176, 0)
+	_headers.add_theme_constant_override("separation", 0)
+	_timeline_row.add_child(_headers)
 	var ViewScript := load("res://addons/spine_notify_editor/timeline_view.gd")
 	_view = ViewScript.new()
+	_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_view.setup(self)
-	add_child(_view)
+	_timeline_row.add_child(_view)
+	add_child(_timeline_row)
+	_rebuild_headers()
 
 	_strip = VBoxContainer.new()
 	var row1 := HBoxContainer.new()
@@ -98,6 +111,32 @@ func _build_ui() -> void:
 	_strip.visible = false
 
 	_set_active(false)
+
+func _rebuild_headers() -> void:
+	if _headers == null: return
+	for c in _headers.get_children():
+		c.free()   # immediate, not queue_free(): _rebuild_headers() can run twice in one frame
+	# top cell (ruler height) — "+ New track" is wired in a later task; a placeholder for now
+	var top := Control.new()
+	top.custom_minimum_size = Vector2(0, 28)   # RULER_H
+	_headers.add_child(top)
+	for tk in _view.tracks():
+		var row := HBoxContainer.new()
+		row.custom_minimum_size = Vector2(0, 36)  # LANE_H
+		var sw := ColorRect.new()
+		sw.custom_minimum_size = Vector2(9, 9)
+		sw.color = Color(0.29,0.72,0.69) if tk.kind == "events" else Color(0.88,0.60,0.24)
+		row.add_child(sw)
+		var lbl := Label.new()
+		lbl.text = "Events" if tk.kind == "events" else String(tk.channel)
+		lbl.add_theme_font_size_override("font_size", 13)
+		row.add_child(lbl)
+		_headers.add_child(row)
+	_headers_sig = ",".join(_view.channels())
+
+func _header_row_count() -> int:
+	# header rows excluding the top ruler-height cell
+	return _headers.get_child_count() - 1 if _headers else 0
 
 func ensure_track() -> void:
 	if player == null: return
@@ -262,6 +301,9 @@ func _process(delta: float) -> void:
 		_prune_selection()
 		_sync_strip_if_stale()
 		_view.queue_redraw()
+		var sig: String = ",".join(_view.channels())
+		if sig != _headers_sig:
+			_rebuild_headers()
 	if _time_label and _view:
 		_time_label.text = "  %.2f / %.2f" % [_view.playhead_time, _view.duration()]
 
