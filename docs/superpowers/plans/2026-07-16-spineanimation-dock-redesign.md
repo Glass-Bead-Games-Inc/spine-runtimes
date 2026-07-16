@@ -725,11 +725,12 @@ func _rename_channel(old_name: String, new_name: String) -> void:
 
 - [ ] **Step 4: Wire the header UI in `_rebuild_headers()`**
 
-Replace the placeholder top cell and the plain Label rows from Task 1 with interactive ones. The top cell becomes a "+ New track" button that reveals an inline `LineEdit`; each non-events, non-`default` header name becomes double-click-renameable. Replace the body of `_rebuild_headers()` (from Task 1) with:
+Replace the placeholder top cell and the plain Label rows from Task 1 with interactive ones. The top cell becomes a "+ New track" button that reveals an inline `LineEdit`; each non-events, non-`default` header name becomes double-click-renameable. Replace the body of `_rebuild_headers()` (from Task 1) with the version below. **Reentrancy note:** rename commits from a header `LineEdit`'s own `text_submitted` signal, which calls `_rename_channel` → `_rebuild_headers`; the cleanup MUST use `remove_child(c)` (immediate detach → correct child count) + `c.queue_free()` (deferred free → safe to free the very `LineEdit` whose signal is on the call stack). Do NOT use immediate `free()` here.
 ```gdscript
 func _rebuild_headers() -> void:
 	if _headers == null: return
 	for c in _headers.get_children():
+		_headers.remove_child(c)
 		c.queue_free()
 	var top := HBoxContainer.new()
 	top.custom_minimum_size = Vector2(0, 28)
