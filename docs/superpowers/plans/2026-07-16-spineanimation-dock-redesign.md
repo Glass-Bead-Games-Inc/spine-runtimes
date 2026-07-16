@@ -872,6 +872,8 @@ In `edit_notify(n)`, replace the `_channel_edit.text = n.channel` line with the 
 ```gdscript
 		_channel_chip.text = "  " + n.channel
 ```
+
+**Also remove the now-redundant old toolbar add-channel control** (superseded by Task 3's header "+ New track"): delete the members `var _new_channel_edit: LineEdit` and `var _add_channel_btn: Button`, their creation+wiring block in `_build_ui()` (`_new_channel_edit = LineEdit.new()` … `_toolbar.add_child(_add_channel_btn)`), and the `func _add_channel()` method. Nothing else references them (the header uses `_add_named_channel`).
 Update `_displayed_signature()` (used by `_sync_strip_if_stale`) — it currently references `_channel_edit.text`; change that term to `_selected_notify.channel` (channel is no longer editable so it always matches the resource):
 ```gdscript
 	return "%s|%s|%d" % [_name_edit.text, _selected_notify.channel, d.hash()]
