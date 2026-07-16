@@ -27,7 +27,12 @@ const _PAYLOAD_TYPES := ["String", "int", "float", "bool"]
 
 var playing: bool = false
 var loop_enabled: bool = true
-var _play_btn: Button
+var play_dir: int = 1
+var _tp_bw_from: Button
+var _tp_bw_end: Button
+var _tp_stop: Button
+var _tp_start: Button
+var _tp_play: Button
 var _loop_btn: CheckButton
 var _snap_btn: CheckButton
 var _time_label: Label
@@ -52,9 +57,11 @@ func _build_ui() -> void:
 	_toolbar.add_child(_anim_dropdown)
 	add_child(_toolbar)
 
-	_play_btn = Button.new(); _play_btn.text = "Play"
-	_play_btn.pressed.connect(func(): playing = not playing; _play_btn.text = ("Pause" if playing else "Play"))
-	_toolbar.add_child(_play_btn)
+	_tp_bw_from = _make_tp("PlayBackwards", "|<", "Play backwards from current pos.", _play_bw_from_current)
+	_tp_bw_end  = _make_tp("PlayStartBackwards", "<|", "Play backwards from end.", _play_bw_from_end)
+	_tp_stop    = _make_tp("Stop", "[]", "Pause/stop.", _stop)
+	_tp_start   = _make_tp("PlayStart", "|>", "Play from start.", _play_from_start)
+	_tp_play    = _make_tp("Play", ">", "Play from current pos.", _play_from_current)
 	_loop_btn = CheckButton.new(); _loop_btn.text = "Loop"; _loop_btn.button_pressed = true
 	_loop_btn.toggled.connect(func(on): loop_enabled = on)
 	_toolbar.add_child(_loop_btn)
@@ -111,6 +118,40 @@ func _build_ui() -> void:
 	_strip.visible = false
 
 	_set_active(false)
+
+func _editor_icon(nm: String) -> Texture2D:
+	if has_theme_icon(nm, "EditorIcons"):
+		return get_theme_icon(nm, "EditorIcons")
+	return null
+
+func _make_tp(icon_name: String, fallback: String, tip: String, fn: Callable) -> Button:
+	var b := Button.new()
+	var ic := _editor_icon(icon_name)
+	if ic != null: b.icon = ic
+	else: b.text = fallback
+	b.tooltip_text = tip
+	b.pressed.connect(fn)
+	_toolbar.add_child(b)
+	return b
+
+func _play_from_start() -> void:
+	if _view: _view.set_playhead(0.0)
+	play_dir = 1; playing = true
+
+func _play_from_current() -> void:
+	play_dir = 1; playing = true
+
+func _play_bw_from_current() -> void:
+	play_dir = -1; playing = true
+
+func _play_bw_from_end() -> void:
+	if _view: _view.set_playhead(_view.duration())
+	play_dir = -1; playing = true
+
+func _stop() -> void:
+	if not playing and _view and _view.playhead_time > 0.0:
+		_view.set_playhead(0.0)     # second press when stopped -> rewind
+	playing = false
 
 func _rebuild_headers() -> void:
 	if _headers == null: return
@@ -292,10 +333,13 @@ func _process(delta: float) -> void:
 	if _view == null: return
 	if playing and _view.visible:
 		var dur: float = _view.duration()
-		var t: float = _view.playhead_time + delta
-		if t >= dur:
-			t = 0.0 if loop_enabled else dur
-			if not loop_enabled: playing = false; _play_btn.text = "Play"
+		var t: float = _view.playhead_time + play_dir * delta
+		if play_dir > 0 and t >= dur:
+			if loop_enabled: t = 0.0
+			else: t = dur; playing = false
+		elif play_dir < 0 and t <= 0.0:
+			if loop_enabled: t = dur
+			else: t = 0.0; playing = false
 		_view.set_playhead(t)
 	if _view.is_visible_in_tree():
 		_prune_selection()
