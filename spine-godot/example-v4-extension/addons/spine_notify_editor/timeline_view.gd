@@ -9,6 +9,7 @@ const HIT_PX := 8.0
 const LANE_H := 20.0
 const LANE_LABEL_W := 72.0
 const LANES_TOP := EVENTS_Y + 12.0     # 44.0
+const MAGNET_PX := 10.0
 
 var dock
 var playhead_time: float = 0.0
@@ -160,8 +161,26 @@ func x_from_time(t: float) -> float:
 	return _track_left() + (t / duration()) * _track_width()
 
 func snap(t: float) -> float:
-	if not snap_enabled or fps <= 0.0: return t
-	return round(t * fps) / fps
+	if not snap_enabled or fps <= 0.0:
+		return t
+	var f: float = round(t * fps) / fps
+	var tx: float = x_from_time(t)
+	var best = null
+	var best_px: float = MAGNET_PX
+	for e in _events:
+		var et: float = e.get("time", 0.0)
+		var d: float = abs(x_from_time(et) - tx)
+		if d <= best_px:
+			best = et; best_px = d
+	for n in notifies_for_current():
+		if n == _drag_notify:
+			continue
+		var dn: float = abs(x_from_time(n.time) - tx)
+		if dn <= best_px:
+			best = n.time; best_px = dn
+	if best != null:
+		return round(float(best) * fps) / fps
+	return f
 
 func set_playhead(t: float, do_pose := true) -> void:
 	playhead_time = clamp(t, 0.0, duration())
