@@ -7,7 +7,7 @@ var _dock
 func _enter_tree() -> void:
 	_dock = DockScript.new()
 	_dock.setup(get_undo_redo(), get_editor_interface())
-	add_control_to_bottom_panel(_dock, "Spine Notifies")
+	add_control_to_bottom_panel(_dock, "SpineAnimation")
 	get_editor_interface().get_selection().selection_changed.connect(_on_selection_changed)
 	_on_selection_changed()
 
