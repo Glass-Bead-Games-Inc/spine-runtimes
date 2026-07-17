@@ -193,6 +193,11 @@ func _build_ui() -> void:
 	insp.pressed.connect(func(): if _selected_notify and editor_interface: editor_interface.edit_resource(_selected_notify))
 	_style_btn(insp)
 	row1.add_child(insp)
+	var trash := Button.new(); trash.text = "🗑 Delete"; trash.tooltip_text = "Delete this notify"
+	trash.pressed.connect(func(): if _selected_notify and _view: _view.delete_notify(_selected_notify))
+	_style_btn(trash)
+	trash.add_theme_color_override("font_color", Color(0.93, 0.55, 0.55))
+	row1.add_child(trash)
 	_strip.add_child(row1)
 	_payload_box = VBoxContainer.new()
 	_payload_box.add_theme_constant_override("separation", 4)

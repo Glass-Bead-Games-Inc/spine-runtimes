@@ -29,6 +29,7 @@ var _events: Array = []
 var _drag_notify = null
 var _drag_start_time := 0.0
 var _hovered = null                 # {kind, ref, row} or null
+var _del_rect := Rect2()            # hit-rect of the hovered notify's × button (empty when none)
 var _flag_sb: StyleBoxFlat
 var _tip_sb: StyleBoxFlat
 var _chip_sb: StyleBoxFlat
@@ -235,6 +236,10 @@ func _set_notifies(arr: Array, action: String) -> void:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
+			# hovered-notify × delete button takes priority over select/drag
+			if _hovered != null and _hovered.kind == "notify" and _del_rect.has_point(event.position):
+				delete_notify(_hovered.ref)
+				accept_event(); return
 			var row: int = _row_at_y(event.position.y)
 			if row >= 1:
 				var tk: Dictionary = tracks()[row]
@@ -314,15 +319,17 @@ func _draw() -> void:
 		var qx := left + w * q / 4.0
 		draw_string(font, Vector2(qx + 2, 15), "%.2f" % (dur * q / 4.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, C_QLABEL)
 	# markers on top of the row backgrounds
+	_del_rect = Rect2()
 	for i in tks.size():
 		var tk: Dictionary = tks[i]
 		if tk.kind == "events":
 			for e in _events:
-				_draw_flag(x_from_time(e.get("time", 0.0)), _row_center(i), String(e.get("name", "event")), C_EVENT, false, font, fsize)
+				_draw_flag(x_from_time(e.get("time", 0.0)), _row_center(i), String(e.get("name", "event")), C_EVENT, false, font, fsize, false)
 		else:
 			for n in _notifies_in_channel(tk.channel):
 				var sel: bool = (dock._selected_notify == n)
-				_draw_flag(x_from_time(n.time), _row_center(i), n.notify_name, C_NOTIFY_SEL if sel else C_NOTIFY, sel, font, fsize)
+				var del_hover: bool = (_hovered != null and _hovered.kind == "notify" and _hovered.ref == n)
+				_draw_flag(x_from_time(n.time), _row_center(i), n.notify_name, C_NOTIFY_SEL if sel else C_NOTIFY, sel, font, fsize, del_hover)
 	# playhead with a cap
 	var px := x_from_time(playhead_time)
 	draw_line(Vector2(px, RULER_H - 8), Vector2(px, size.y), C_PLAYHEAD, 2.0)
@@ -330,10 +337,10 @@ func _draw() -> void:
 	if _hovered != null:
 		_draw_tooltip(font)
 
-func _draw_flag(cx: float, cy: float, label: String, col: Color, sel: bool, font: Font, fsize: int) -> void:
+func _draw_flag(cx: float, cy: float, label: String, col: Color, sel: bool, font: Font, fsize: int, del_hover: bool) -> void:
 	var txt := _elide(label, font, fsize)
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
-	var bw := tw + 18.0
+	var bw := tw + 18.0 + (18.0 if del_hover else 0.0)   # room for the × on hover
 	var half := FLAG_H * 0.5
 	var rect := Rect2(cx + 5, cy - half, bw, FLAG_H)
 	# pointer nub at the exact time
@@ -347,6 +354,11 @@ func _draw_flag(cx: float, cy: float, label: String, col: Color, sel: bool, font
 	draw_style_box(_flag_sb, rect)
 	var ink := Color(0.11, 0.09, 0.04) if col.get_luminance() > 0.5 else Color(1, 1, 1, 0.95)
 	draw_string(font, Vector2(cx + 14, cy + fsize * 0.34), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, ink)
+	if del_hover:
+		var dcx := rect.end.x - 11.0
+		_del_rect = Rect2(dcx - 8, cy - 8, 16, 16)
+		draw_line(Vector2(dcx - 3.5, cy - 3.5), Vector2(dcx + 3.5, cy + 3.5), ink, 1.6)
+		draw_line(Vector2(dcx - 3.5, cy + 3.5), Vector2(dcx + 3.5, cy - 3.5), ink, 1.6)
 
 func _draw_tooltip(font: Font) -> void:
 	var ref = _hovered.ref
