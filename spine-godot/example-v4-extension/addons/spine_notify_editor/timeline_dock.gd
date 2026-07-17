@@ -348,13 +348,12 @@ func ensure_track() -> void:
 	if player == null: return
 	if track == null:
 		var t = SpineNotifyTrack.new()
+		player.notify_track = t                       # apply directly
 		if undo_redo:
 			undo_redo.create_action("Create Notify Track")
 			undo_redo.add_do_property(player, "notify_track", t)
 			undo_redo.add_undo_property(player, "notify_track", null)
-			undo_redo.commit_action()
-		else:
-			player.notify_track = t
+			undo_redo.commit_action(false)            # record only — already applied
 		track = player.notify_track
 
 func _add_named_channel(cname: String) -> void:
@@ -376,14 +375,15 @@ func _rename_channel(old_name: String, new_name: String) -> void:
 		for n in track.notifies:
 			if n != null and n.animation_name == anim and (n.channel if n.channel != "" else "default") == old_name:
 				targets.append(n)
+	var olds: Array = []
+	for n in targets: olds.append(n.channel)          # capture originals before applying
+	for n in targets: n.channel = nn                  # apply directly
 	if undo_redo and not targets.is_empty():
 		undo_redo.create_action("Rename Notify Channel")
-		for n in targets:
-			undo_redo.add_do_property(n, "channel", nn)
-			undo_redo.add_undo_property(n, "channel", n.channel)
-		undo_redo.commit_action()
-	else:
-		for n in targets: n.channel = nn
+		for i in targets.size():
+			undo_redo.add_do_property(targets[i], "channel", nn)
+			undo_redo.add_undo_property(targets[i], "channel", olds[i])
+		undo_redo.commit_action(false)                # record only — already applied
 	if old_name in _extra_channels:
 		_extra_channels[_extra_channels.find(old_name)] = nn
 	if track: track.emit_changed()
@@ -409,13 +409,13 @@ func _apply_strip() -> void:
 	var new_name: String = _name_edit.text
 	if new_name == _selected_notify.notify_name:
 		return
+	var old_name: String = _selected_notify.notify_name
+	_selected_notify.notify_name = new_name           # apply directly
 	if undo_redo:
 		undo_redo.create_action("Rename Notify")
 		undo_redo.add_do_property(_selected_notify, "notify_name", new_name)
-		undo_redo.add_undo_property(_selected_notify, "notify_name", _selected_notify.notify_name)
-		undo_redo.commit_action()
-	else:
-		_selected_notify.notify_name = new_name
+		undo_redo.add_undo_property(_selected_notify, "notify_name", old_name)
+		undo_redo.commit_action(false)                # record only — already applied
 	if track: track.emit_changed()
 	if _view: _view.queue_redraw()
 
@@ -477,13 +477,13 @@ func _apply_payload() -> void:
 		d[key] = _parse_payload_value(e.type.selected, e.value.text)
 	if d.hash() == _selected_notify.payload.hash():
 		return
+	var old_payload: Dictionary = _selected_notify.payload
+	_selected_notify.payload = d                      # apply directly
 	if undo_redo:
 		undo_redo.create_action("Edit Notify Payload")
 		undo_redo.add_do_property(_selected_notify, "payload", d)
-		undo_redo.add_undo_property(_selected_notify, "payload", _selected_notify.payload)
-		undo_redo.commit_action()
-	else:
-		_selected_notify.payload = d
+		undo_redo.add_undo_property(_selected_notify, "payload", old_payload)
+		undo_redo.commit_action(false)                # record only — already applied
 	if track: track.emit_changed()
 	if _view: _view.queue_redraw()
 

@@ -205,9 +205,21 @@ func delete_notify(n) -> void:
 	if _hovered != null and _hovered.ref == n:
 		_hovered = null
 	var arr: Array = dock.track.notifies.duplicate()
-	arr.erase(n)
+	if arr.has(n):
+		arr.erase(n)
+	else:
+		# fallback: the selected instance may differ from the one in the track
+		# (e.g. after a resource reload) — match by fields instead of identity.
+		for i in range(arr.size()):
+			var m = arr[i]
+			if m != null and m.animation_name == n.animation_name and is_equal_approx(m.time, n.time) and m.channel == n.channel and m.notify_name == n.notify_name:
+				arr.remove_at(i)
+				break
+	if arr.size() == dock.track.notifies.size():
+		return   # nothing matched — don't record a no-op action
 	_set_notifies(arr, "Delete Notify")
-	if dock._selected_notify == n: dock.edit_notify(null)
+	if dock._selected_notify != null and not arr.has(dock._selected_notify):
+		dock.edit_notify(null)
 	queue_redraw()
 
 func move_notify(n, t: float) -> void:
@@ -224,13 +236,18 @@ func _commit_move(n, old_t: float, new_t: float) -> void:
 		dock.undo_redo.commit_action()
 
 func _set_notifies(arr: Array, action: String) -> void:
+	# Apply directly so the change ALWAYS takes effect, then record the undo/redo
+	# without re-executing (commit_action(false)). Relying on commit_action(true) to
+	# apply is fragile: after switching animations/panels the EditorUndoRedoManager
+	# history for an inline sub-resource can go stale and the commit silently no-ops.
+	var old: Array = dock.track.notifies.duplicate()
+	dock.track.notifies = arr
+	dock.track.emit_changed()
 	if dock.undo_redo:
 		dock.undo_redo.create_action(action)
 		dock.undo_redo.add_do_property(dock.track, "notifies", arr)
-		dock.undo_redo.add_undo_property(dock.track, "notifies", dock.track.notifies.duplicate())
-		dock.undo_redo.commit_action()
-	else:
-		dock.track.notifies = arr
+		dock.undo_redo.add_undo_property(dock.track, "notifies", old)
+		dock.undo_redo.commit_action(false)
 
 func _del_hit(n, pos: Vector2) -> bool:
 	# geometry of the × on a hovered notify flag, computed fresh (no dependency on the last _draw)
