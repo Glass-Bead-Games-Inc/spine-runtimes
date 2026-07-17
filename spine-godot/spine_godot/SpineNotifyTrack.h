@@ -30,10 +30,15 @@
 #pragma once
 #include "SpineCommon.h"
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
+#include "SpineNotify.h"
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
+#include <godot_cpp/templates/vector.hpp>
 #else
 #include "core/io/resource.h"
+#include "core/templates/hash_map.h"
+#include "core/templates/vector.h"
 #endif
 
 // A reusable per-character list of notifies (assign to a SpineAnimationPlayer).
@@ -42,14 +47,28 @@ class SpineNotifyTrack : public Resource {
 
 protected:
 	Array notifies;// of SpineNotify
+	// Runtime lookup index: animation name (StringName, interned -> O(1) key compare) -> its
+	// notifies. Lets the player fetch one animation's notifies in O(1) instead of scanning
+	// every animation's notifies each frame. Not serialized; rebuilt lazily after `notifies`
+	// changes, and shared by every SpineAnimationPlayer that references this track.
+	HashMap<StringName, Vector<Ref<SpineNotify>>> index;
+	bool index_dirty = true;
+	void rebuild_index();
 	static void _bind_methods();
 
 public:
 	void set_notifies(const Array &v) {
 		notifies = v;
+		index_dirty = true;
 	}
 	Array get_notifies() const {
 		return notifies;
+	}
+	// O(1) lookup of the notifies belonging to one animation (index rebuilt lazily).
+	const Vector<Ref<SpineNotify>> &get_notifies_for_animation(const StringName &animation_name);
+	// Force the index to rebuild on next lookup (call if a notify's animation_name changed in place).
+	void invalidate_index() {
+		index_dirty = true;
 	}
 };
 #endif

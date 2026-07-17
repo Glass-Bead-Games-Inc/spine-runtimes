@@ -85,10 +85,11 @@ void SpineAnimationPlayer::_notification(int what) {
 
 void SpineAnimationPlayer::emit_forward(const String &anim, float lo, float hi) {
 	if (notify_track.is_null()) return;
-	Array notifies = notify_track->get_notifies();
+	// O(1) lookup of this animation's notifies, then iterate only those (not every animation).
+	const Vector<Ref<SpineNotify>> &notifies = notify_track->get_notifies_for_animation(StringName(anim));
 	for (int i = 0; i < notifies.size(); i++) {
-		Ref<SpineNotify> n = notifies[i];
-		if (n.is_null() || n->get_animation_name() != anim) continue;
+		const Ref<SpineNotify> &n = notifies[i];
+		if (n.is_null()) continue;
 		float t = n->get_time();
 		if (t > lo && t <= hi) {
 			Dictionary payload = n->get_payload().duplicate(true);
@@ -153,10 +154,10 @@ void SpineAnimationPlayer::on_before_apply(const Variant &_sprite) {
 		} else if (ts < 0.0f) {
 			// reverse: fire notifies in [cur, prev)
 			if (!notify_track.is_null()) {
-				Array notifies = notify_track->get_notifies();
+				const Vector<Ref<SpineNotify>> &notifies = notify_track->get_notifies_for_animation(StringName(anim_name));
 				for (int k = 0; k < notifies.size(); k++) {
-					Ref<SpineNotify> nt = notifies[k];
-					if (nt.is_null() || nt->get_animation_name() != anim_name) continue;
+					const Ref<SpineNotify> &nt = notifies[k];
+					if (nt.is_null()) continue;
 					float t = nt->get_time();
 					if (t >= cur && t < prev) {
 						Dictionary payload = nt->get_payload().duplicate(true);

@@ -39,4 +39,21 @@ void SpineNotifyTrack::_bind_methods() {
 							  vformat("%d/%d:%s", Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "SpineNotify")),
 				 "set_notifies", "get_notifies");
 }
+
+void SpineNotifyTrack::rebuild_index() {
+	index.clear();
+	for (int i = 0; i < notifies.size(); i++) {
+		Ref<SpineNotify> n = notifies[i];
+		if (n.is_null()) continue;
+		index[StringName(n->get_animation_name())].push_back(n);
+	}
+	index_dirty = false;
+}
+
+const Vector<Ref<SpineNotify>> &SpineNotifyTrack::get_notifies_for_animation(const StringName &animation_name) {
+	if (index_dirty) rebuild_index();
+	if (index.has(animation_name)) return index[animation_name];
+	static const Vector<Ref<SpineNotify>> empty;
+	return empty;
+}
 #endif
