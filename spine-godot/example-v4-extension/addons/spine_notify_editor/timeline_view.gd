@@ -29,7 +29,6 @@ var _events: Array = []
 var _drag_notify = null
 var _drag_start_time := 0.0
 var _hovered = null                 # {kind, ref, row} or null
-var _del_rect := Rect2()            # hit-rect of the hovered notify's × button (empty when none)
 var _flag_sb: StyleBoxFlat
 var _tip_sb: StyleBoxFlat
 var _chip_sb: StyleBoxFlat
@@ -233,11 +232,27 @@ func _set_notifies(arr: Array, action: String) -> void:
 	else:
 		dock.track.notifies = arr
 
+func _del_hit(n, pos: Vector2) -> bool:
+	# geometry of the × on a hovered notify flag, computed fresh (no dependency on the last _draw)
+	var font := get_theme_default_font()
+	var fsize := 13
+	var tw := font.get_string_size(_elide(n.notify_name, font, fsize), HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
+	var rect_end_x := x_from_time(n.time) + 5.0 + tw + 18.0 + 18.0
+	var cy := _row_center(_channel_row_index(n.channel))
+	return Rect2(rect_end_x - 19.0, cy - 8.0, 16.0, 16.0).has_point(pos)
+
 func _gui_input(event: InputEvent) -> void:
+	# right-click a notify marker -> delete (state-independent, always works)
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		var rhit = marker_at_pos(event.position.x, event.position.y)
+		if rhit != null and rhit.kind == "notify":
+			delete_notify(rhit.ref)
+			accept_event()
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			# hovered-notify × delete button takes priority over select/drag
-			if _hovered != null and _hovered.kind == "notify" and _del_rect.has_point(event.position):
+			if _hovered != null and _hovered.kind == "notify" and _del_hit(_hovered.ref, event.position):
 				delete_notify(_hovered.ref)
 				accept_event(); return
 			var row: int = _row_at_y(event.position.y)
@@ -319,7 +334,6 @@ func _draw() -> void:
 		var qx := left + w * q / 4.0
 		draw_string(font, Vector2(qx + 2, 15), "%.2f" % (dur * q / 4.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, C_QLABEL)
 	# markers on top of the row backgrounds
-	_del_rect = Rect2()
 	for i in tks.size():
 		var tk: Dictionary = tks[i]
 		if tk.kind == "events":
@@ -356,7 +370,6 @@ func _draw_flag(cx: float, cy: float, label: String, col: Color, sel: bool, font
 	draw_string(font, Vector2(cx + 14, cy + fsize * 0.34), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, ink)
 	if del_hover:
 		var dcx := rect.end.x - 11.0
-		_del_rect = Rect2(dcx - 8, cy - 8, 16, 16)
 		draw_line(Vector2(dcx - 3.5, cy - 3.5), Vector2(dcx + 3.5, cy + 3.5), ink, 1.6)
 		draw_line(Vector2(dcx - 3.5, cy + 3.5), Vector2(dcx + 3.5, cy - 3.5), ink, 1.6)
 
