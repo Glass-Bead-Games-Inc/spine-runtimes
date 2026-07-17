@@ -47,19 +47,24 @@ export class SkeletonRendererCore {
 		const clipper = this.clipping;
 
 		const drawOrder = skeleton.drawOrder.appliedPose;
-		for (let i = 0; i < skeleton.slots.length; i++) {
+		for (let i = 0, n = drawOrder.length; i < n; i++) {
 			const slot = drawOrder[i];
-			const attachment = slot.appliedPose.attachment;
+			if (!slot.bone.active) {
+				clipper.clipEnd(slot);
+				continue;
+			}
+
+			const pose = slot.appliedPose;
+			const attachment = pose.attachment;
 
 			if (!attachment) {
 				clipper.clipEnd(slot);
 				continue;
 			}
 
-			const pose = slot.appliedPose;
 			const slotColor = pose.color;
 			const alpha = slotColor.a;
-			if ((alpha === 0 || !slot.bone.active) && !(attachment instanceof ClippingAttachment)) {
+			if (alpha === 0 && !(attachment instanceof ClippingAttachment)) {
 				clipper.clipEnd(slot);
 				continue;
 			}
@@ -116,9 +121,16 @@ export class SkeletonRendererCore {
 				texture = sequence.regions[sequenceIndex]?.texture;
 
 			} else if (attachment instanceof ClippingAttachment) {
+				clipper.clipEnd(slot);
 				clipper.clipStart(skeleton, slot, attachment);
 				continue;
 			} else {
+				clipper.clipEnd(slot);
+				continue;
+			}
+
+			if (!texture) {
+				clipper.clipEnd(slot);
 				continue;
 			}
 

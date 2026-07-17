@@ -32,7 +32,7 @@ let package = Package(
         .target(
             name: "SpineiOSWrapper",
             dependencies: [
-                .target(name: "SpineiOS", condition: .when(platforms: [.iOS, .visionOS, .tvOS, .macCatalyst]))
+                .target(name: "SpineiOS", condition: .when(platforms: [.iOS, .visionOS, .tvOS, .macCatalyst, .macOS]))
             ],
             path: "spine-ios/Sources/SpineiOSWrapper"
         ),
@@ -42,7 +42,10 @@ let package = Package(
                 "SpineSwift",
                 "SpineShadersStructs",
             ],
-            path: "spine-ios/Sources/SpineiOS"
+            path: "spine-ios/Sources/SpineiOS",
+            resources: [
+                .process("Metal/SpineShaders.metal")
+            ]
         ),
         .target(
             name: "SpineC",

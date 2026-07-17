@@ -193,6 +193,8 @@ Transform2D SpineBone::get_global_transform() {
 	Transform2D local;
 	local[0] = Vector2(applied_pose.getA(), applied_pose.getC());
 	local[1] = Vector2(applied_pose.getB(), applied_pose.getD());
+	// Bone::setYDown(true) is a runtime coordinate conversion for Godot. Don't expose it as an authored Node2D Y scale.
+	if (spine::Bone::isYDown()) local[1] = Vector2(-local[1].x, -local[1].y);
 	local[2] = Vector2(applied_pose.getWorldX(), applied_pose.getWorldY());
 	return sprite2d->get_global_transform() * local;
 }
@@ -211,6 +213,7 @@ void SpineBone::set_global_transform(Transform2D transform) {
 	auto bone = get_spine_object();
 	Transform2D inverse_sprite_transform = sprite2d->get_global_transform().affine_inverse();
 	Transform2D local = inverse_sprite_transform * transform;
+	if (spine::Bone::isYDown()) local[1] = Vector2(-local[1].x, -local[1].y);
 	auto &applied_pose = bone->getAppliedPose();
 	applied_pose.setA(local[0].x);
 	applied_pose.setC(local[0].y);

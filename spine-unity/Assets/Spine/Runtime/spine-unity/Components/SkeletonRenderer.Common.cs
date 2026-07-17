@@ -665,6 +665,9 @@ namespace Spine.Unity {
 		}
 
 		public virtual void UpdateMeshAndMaterialsToBuffers () {
+#if USE_THREADED_SKELETON_UPDATE
+			requiresMeshBufferAssignmentMainThread = false;
+#endif
 			ExposedList<SubmeshInstruction> workingSubmeshInstructions = currentInstructions.submeshInstructions;
 			MeshRendererBuffers.SmartMesh currentSmartMesh = rendererBuffers.GetCurrentMesh();
 			UpdateMeshAndMaterialsToBuffers(workingSubmeshInstructions, currentSmartMesh, updateTriangles);

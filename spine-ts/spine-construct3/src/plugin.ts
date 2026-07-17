@@ -151,12 +151,82 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 			}),
 		]);
 
-		SDK.Lang.PopContext();		// .properties
+		SDK.Lang.PopContext(); // .properties
 
 		SDK.Lang.PopContext();
+
+		SDK.UI.Util.AddDragDropFileImportHandler(HandleDataInMyFormat, {
+			isZipFormat: true,
+			toLayoutView: true,
+		});
 	}
 };
 
+async function HandleDataInMyFormat (droppedFileName: string, file: SDK.IZipFile | Blob, opts: SDK.UI.DragDropFileImportHandlerCallbackOpts) {
+	const zipFile = file as SDK.IZipFile;
+
+	const list = zipFile.GetFileList();
+
+	const skelFileName = list.find((entry) => entry.endsWith(".skel") || entry.endsWith(".json"));
+	if (!skelFileName) return false;
+
+	const skeletonEntry = zipFile.GetEntry(skelFileName);
+	if (!skeletonEntry) return false;
+
+	const atlasFileName = list.find((entry) => entry.endsWith(".atlas"));
+	if (!atlasFileName) return false;
+
+	const atlasEntry = zipFile.GetEntry(atlasFileName);
+	if (!atlasEntry) return false;
+
+	const atlasText = await zipFile.ReadText(atlasEntry);
+	const atlas = new (globalThis.spine).TextureAtlas(atlasText);
+
+	const blobsToLoad = [skeletonEntry, atlasEntry];
+	for (const page of atlas.pages) {
+		const entry = zipFile.GetEntry(page.name);
+		if (!entry) return false;
+		blobsToLoad.push(entry);
+	}
+
+	const layoutView = opts.layoutView;
+	const project = layoutView.GetProject();
+
+	const blobsLoading = blobsToLoad.map(name => zipFile.ReadBlob(name))
+	const [skeletonBlob, atlasBlob, ...pagesBlob] = await Promise.all(blobsLoading);
+
+	project.AddOrReplaceProjectFile(skeletonBlob, skelFileName, "general");
+	const projectSkeletonFile = project.GetProjectFileByExportPath(skelFileName)
+	if (!projectSkeletonFile) return false;
+
+	project.AddOrReplaceProjectFile(atlasBlob, atlasFileName, "general");
+	const projectAtlasFile = project.GetProjectFileByExportPath(atlasFileName);
+	if (!projectAtlasFile) return false;
+
+
+	pagesBlob.forEach((page, index) => {
+		project.AddOrReplaceProjectFile(page, atlas.pages[index].name, "general");
+	});
+
+	const objectTypeName = droppedFileName.replace(".zip", "");
+	const objectType = project.GetObjectTypeByName(objectTypeName) || await project.CreateObjectType(PLUGIN_ID, objectTypeName);
+
+	const wi = objectType.CreateWorldInstance(layoutView.GetActiveLayer());
+	wi.SetXY(opts.layoutX, opts.layoutY);
+
+	wi.SetPropertyValue(PLUGIN_CLASS.PROP_SKELETON, projectSkeletonFile.GetSID());
+	wi.SetPropertyValue(PLUGIN_CLASS.PROP_ATLAS, projectAtlasFile.GetSID());
+
+	return true;
+}
+
+const originalSet = WeakMap.prototype.set;
+const capturedMappings = new Map();
+
+WeakMap.prototype.set = function (key, value) {
+	capturedMappings.set(key, value);
+	return originalSet.call(this, key, value);
+};
 SDK.Plugins.EsotericSoftware_SpineConstruct3 = PLUGIN_CLASS;
 
 PLUGIN_CLASS.Register(PLUGIN_ID, PLUGIN_CLASS);

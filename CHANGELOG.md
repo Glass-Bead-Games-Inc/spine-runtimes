@@ -22,6 +22,8 @@
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed `Skeleton::updateWorldTransform()` to avoid copying draw order unless it is constrained.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
+  - Improved clipping performance through the updated spine-cpp clipping runtime.
 
 - **Breaking changes**
   - Removed generated `spine_bone_pose_reset_world()` because resetWorld is an internal implementation detail.
@@ -129,8 +131,10 @@
   - Added `Animation::getColor()` and `BoneData` icon size/rotation accessors for nonessential editor data.
 
 - **Bug fixes**
+  - Fixed physics constraint rotation, shear, and scale forces using the wrong Y direction in Y-down runtimes.
   - Fixed draw order timelines not mixing out to the setup pose.
   - Fixed slider sorting crashes when slider animations key slot or constraint timelines.
+  - Fixed `SliderData` leaking its `FromProperty` by adding a destructor that frees `_property` and its `ToProperty` children, matching `TransformConstraintData`.
   - Fixed bones that don't inherit rotation when parent scale is near zero.
   - Fixed `BonePose::updateLocalTransform()` for `noScale` and `noScaleOrReflection` inheritance, plus related IK epsilon handling.
   - Fixed `ScaleYMode_Volume` to avoid extreme scaleY values for very small scaleX factors.
@@ -138,6 +142,8 @@
   - Fixed `AnimationState` attachment timeline handling so deforms are applied correctly when an attachment is hidden in the setup pose.
   - Fixed `Skeleton::updateWorldTransform()` to avoid copying draw order unless it is constrained.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
+  - Improved clipping performance by computing barycentric data lazily and reusing edge side tests.
 
 - **Breaking changes**
   - `MathUtil::Epsilon2` renamed to `MathUtil::EpsilonSq`.
@@ -293,7 +299,9 @@
   - Added convex and inverse clipping support through the updated spine-cpp clipping runtime.
 
 - **Bug fixes**
+  - Fixed `SpineBoneDriverComponent` failing to drive bones affected by constraints.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
 
 - **Breaking changes**
   - Custom C++ `AttachmentLoader` implementations now receive both the skin `placeholder` and resolved attachment `name`.
@@ -312,15 +320,20 @@
   - Added `SpineTrackEntry.get_additive()` / `set_additive()` for additive blending per track entry.
 
 - **Bug fixes**
+  - Fixed `SpineSkeletonDataResource` constraint getters returning null entries and dropping constraints when multiple constraint types are present.
+  - Fixed physics constraint rotation pointing opposite to translation under gravity and vertical wind.
   - Fixed Godot wrapper crashes from invalid skin attachment lookups, wrong constraint type filtering, stale cached bone/slot wrappers after skeleton rebuilds, dangling `SpineSlotNode` connections after unparenting, and stale Godot 3 wrapper signal connections.
   - Fixed `SpineSprite` debug drawing and global bone transform helpers to work when a skeleton exists without an animation state.
   - Fixed draw order timelines not mixing out to the setup pose.
   - Fixed editor crashes when assigning skeleton data with slider animations that key slots or constraints.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
   - Fixed `SpineAnimationTrack` editor preview paths for nested `AnimationPlayer` roots, and prevented inactive tracks from clearing `SpineSprite` preview animations.
   - Fixed GDExtension animation mix editing in the Godot inspector.
   - Fixed `SpineBoneNode` and `SpineSlotNode` transforms when bones use negative scale or shear, and applied `SpineBoneNode` Drive mode before world transforms are computed.
+  - Fixed `SpineSlotNode` and global bone transforms exposing the runtime Y-down coordinate conversion as negative Godot Node2D Y scale.
+  - Fixed Godot 4.7 GDExtension resource loading for raw `.skel`, `.spine-json`, and `.atlas` Spine asset files.
   - Updated Godot 4.x CI builds to Godot 4.6.2.
   - Fixed Godot 4.6 Windows editor CI builds by installing Direct3D 12 SDK dependencies before building Godot.
   - Fixed Godot 4.6 GDExtension builds with the latest `godot-cpp` by including the required `Ref` support header in `SpineCommon.h`, updated `SpineEventData` for the `EventData.setupPose` API change, and refreshed vendored `spine-cpp` sources during clean setup.
@@ -570,17 +583,22 @@
 ## iOS
 
 - **Additions**
+  - Added native AppKit/macOS support to `SpineiOS` and the example app.
+  - Added `SpineTextureFilter` overrides to `SpineUIView` and `SpineView`.
   - Added generated slider data `max` APIs.
   - Added generated physics constraint `scaleYMode` APIs.
   - Added generated `Interpolation` and `TrackEntry` mix interpolation APIs.
   - Added convex and inverse clipping support through the updated spine-cpp clipping runtime.
 
 - **Bug fixes**
+  - Fixed Metal rendering to honor each atlas page's texture filter, mipmap, and wrap settings.
   - Fixed draw order timelines not mixing out to the setup pose.
   - Fixed bones that don't inherit rotation when parent scale is near zero.
   - Fixed `BonePose.updateLocalTransform(_:)` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
+  - Improved clipping performance through the updated spine-cpp clipping runtime.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld(_:)` because resetWorld is an internal implementation detail.
@@ -609,6 +627,8 @@
   - Fixed `BonePose.updateLocalTransform()` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
+  - Improved clipping performance through the updated spine-cpp clipping runtime.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld()` because resetWorld is an internal implementation detail.
@@ -648,6 +668,8 @@
   - Fixed `BonePose.updateLocalTransform()` for `noScale` and `noScaleOrReflection` inheritance.
   - Fixed attachment timelines so hidden setup-pose attachments remain hidden while mixing out, preserving deform behavior.
   - Fixed constraints so modifying a constrained bone's world transform preserves descendant bone transforms from earlier constraints.
+  - Fixed one-bone IK inheritance calculations in Y-down coordinate systems.
+  - Improved clipping performance through the updated spine-cpp clipping runtime.
 
 - **Breaking changes**
   - Removed generated `BonePose.resetWorld()` because resetWorld is an internal implementation detail.
@@ -1020,6 +1042,9 @@
   - Updated the Gradle wrapper and fixed the headless test fat jar task to build included libgdx runtime classpath artifacts before packaging.
   - Gradle builds now delete stale Eclipse `bin/` output before compiling so removed classes don't linger on Java headless test classpaths.
   - Updated the libGDX dependency from `1.14.1-SNAPSHOT` to the released `1.14.1`.
+  - Fixed `TwoColorPolygonBatch` ignoring the configured maximum vertex count.
+  - Improved clipping performance by computing barycentric data lazily and reusing edge side tests.
+  - Fixed binary skeleton loading from `FileHandle` to use buffered I/O, avoiding slow per-byte file reads.
 
 ### Android
 
@@ -1030,6 +1055,8 @@
   - Updated the Android atlas attachment loader to match the current `AttachmentLoader` method signatures.
   - Updated the Android examples to use `AnimationState.getTrack()` instead of the removed `getCurrent()` API.
   - Updated the libGDX dependency from `1.14.1-SNAPSHOT` to the released `1.14.1`.
+  - Updated the bundled spine-libgdx release with the `TwoColorPolygonBatch` max vertices fix and clipping performance improvements.
+  - Fixed large binary skeleton files taking a long time to load from files by buffering spine-libgdx file reads.
 
 ## Swift
 
@@ -1315,6 +1342,12 @@
   - Updated to use new TypeScript/JavaScript runtime
   - Updated skeleton and overlay component implementations
   - Removed `pma` property from `SpineWebComponentSkeleton` - PMA is handled automatically
+
+## Unreal Engine
+
+- **Bug fixes**
+  - Fixed Spine atlas and skeleton data reimport actions and automatic source change detection in recent Unreal Engine versions.
+  - Fixed editor crashes caused by parsing stale skeleton data while loading assets. Skeleton metadata is now validated and cached during import and reimport.
 
 # 4.2
 

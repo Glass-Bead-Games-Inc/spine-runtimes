@@ -256,6 +256,7 @@ namespace Spine.Unity {
 			InitializeMainThreadID();
 #if UNITY_EDITOR
 			SkeletonAnimationBase.ApplicationIsPlaying = Application.isPlaying;
+			if (IssueNullRendererError()) return;
 #endif
 			EnsureRendererEventsSubscribed();
 		}
@@ -346,8 +347,20 @@ namespace Spine.Unity {
 		}
 
 #if UNITY_EDITOR
+		protected bool IssueNullRendererError () {
+			if (Renderer == null) {
+				Debug.LogError(string.Format(
+					"No skeleton renderer (SkeletonRenderer or SkeletonGraphic) found at {0}.\n" +
+					"Did you turn off 'Split Component Upgrade' or forget to open and save the scene or prefab?", this.gameObject),
+					this.gameObject);
+				return true;
+			}
+			return false;
+		}
+
 		protected void OnValidate () {
 			if (!Application.isPlaying) {
+				if (IssueNullRendererError()) return;
 				Renderer.OnRebuild -= OnRendererRebuild;
 				Renderer.OnRebuild += OnRendererRebuild;
 				requiresEditorUpdate = true;

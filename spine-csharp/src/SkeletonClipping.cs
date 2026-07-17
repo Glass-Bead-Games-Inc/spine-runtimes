@@ -245,7 +245,7 @@ namespace Spine {
 				t = triangles[i + 2] << 1;
 				float x3 = vertices[t], y3 = vertices[t + 1];
 				float u3 = uvs[t], v3 = uvs[t + 1];
-				float d0 = y2 - y3, d1 = x3 - x2, d2 = x1 - x3, d4 = y3 - y1, d = 1 / (d0 * d2 + d1 * (y1 - y3));
+				float d0 = 0, d1 = 0, d2 = 0, d4 = 0, d = 0;
 				for (int p = 0; p < polygonsCount; p++) {
 					int s = clippedVertices.Count;
 					if (Clip(x1, y1, x2, y2, x3, y3, polygons[p])) {
@@ -253,6 +253,13 @@ namespace Spine {
 						int clipOutputLength = clipOutput.Count;
 						if (clipOutputLength == 0) continue;
 						int clipOutputCount = clipOutputLength >> 1;
+						if (d == 0) {
+							d0 = y2 - y3;
+							d1 = x3 - x2;
+							d2 = x1 - x3;
+							d4 = y3 - y1;
+							d = 1 / (d0 * d2 - d1 * d4);
+						}
 
 						float[] cv = clippedVertices.EnsureSize(s + clipOutputCount * 2).Items,
 							cu = clippedUvs.EnsureSize(s + clipOutputCount * 2).Items;
@@ -334,16 +341,15 @@ namespace Spine {
 				float edgeX = v[i], edgeY = v[i + 1], ex = edgeX - v[i + 2], ey = edgeY - v[i + 3];
 				int outputStart = output.Count;
 				iv = input.Items;
-				for (int ii = 0, nn = input.Count - 2; ii < nn;) {
-					x1 = iv[ii];
-					y1 = iv[ii + 1];
-					ii += 2;
+				x1 = iv[0];
+				y1 = iv[1];
+				float s1 = ey * (edgeX - x1) - ex * (edgeY - y1);
+				for (int ii = 2, nn = input.Count - 2; ii <= nn; ii += 2) {
 					x2 = iv[ii];
 					y2 = iv[ii + 1];
-					bool s2 = ey * (edgeX - x2) > ex * (edgeY - y2);
-					float s1 = ey * (edgeX - x1) - ex * (edgeY - y1);
+					float s2 = ey * (edgeX - x2) - ex * (edgeY - y2);
 					if (s1 > 0) {
-						if (s2) {// v1 in, v2 in
+						if (s2 > 0) { // v1 in, v2 in
 							output.Add(x2);
 							output.Add(y2);
 						} else { // v1 in, v2 out
@@ -357,7 +363,7 @@ namespace Spine {
 								output.Add(y2);
 							}
 						}
-					} else if (s2) { // v1 out, v2 in
+					} else if (s2 > 0) { // v1 out, v2 in
 						float ix = x2 - x1, iy = y2 - y1, t = s1 / (ix * ey - iy * ex);
 						if (t >= 0 && t <= 1) {
 							output.Add(x1 + ix * t);
@@ -371,6 +377,9 @@ namespace Spine {
 						}
 					} else // v1 out, v2 out
 						clipped = true;
+					x1 = x2;
+					y1 = y2;
+					s1 = s2;
 				}
 				if (outputStart == output.Count) { // All outside.
 					originalOutput.Count = 0;
@@ -429,20 +438,18 @@ namespace Spine {
 				float edgeX = v[i], edgeY = v[i + 1], ex = edgeX - v[i + 2], ey = edgeY - v[i + 3];
 				int outputStart = output.Count, fragmentStart = inverseVertices.Count++;
 				iv = input.Items;
-				for (int ii = 0, nn = input.Count - 2; ii < nn;) {
-					x1 = iv[ii];
-					y1 = iv[ii + 1];
-					ii += 2;
+				x1 = iv[0];
+				y1 = iv[1];
+				float s1 = ey * (edgeX - x1) - ex * (edgeY - y1);
+				for (int ii = 2, nn = input.Count - 2; ii <= nn; ii += 2) {
 					x2 = iv[ii];
 					y2 = iv[ii + 1];
-					bool s2 = ey * (edgeX - x2) > ex * (edgeY - y2);
-					float s1 = ey * (edgeX - x1) - ex * (edgeY - y1);
+					float s2 = ey * (edgeX - x2) - ex * (edgeY - y2);
 					if (s1 > 0) {
-						if (s2) { // v1 in, v2 in
+						if (s2 > 0) { // v1 in, v2 in
 							output.Add(x2);
 							output.Add(y2);
-						} else {
-							// v1 in, v2 out
+						} else { // v1 in, v2 out
 							float ix = x2 - x1, iy = y2 - y1, t = s1 / (ix * ey - iy * ex);
 							if (t >= 0 && t <= 1) {
 								float cx = x1 + ix * t, cy = y1 + iy * t;
@@ -457,10 +464,10 @@ namespace Spine {
 								output.Add(y2);
 							}
 						}
-					} else if (s2) { // v1 out, v2 in
-						float dx = x2 - x1, dy = y2 - y1, t = s1 / (dx * ey - dy * ex);
+					} else if (s2 > 0) { // v1 out, v2 in
+						float ix = x2 - x1, iy = y2 - y1, t = s1 / (ix * ey - iy * ex);
 						if (t >= 0 && t <= 1) {
-							float cx = x1 + dx * t, cy = y1 + dy * t;
+							float cx = x1 + ix * t, cy = y1 + iy * t;
 							inverseVertices.Add(cx);
 							inverseVertices.Add(cy);
 							output.Add(cx);
@@ -475,6 +482,9 @@ namespace Spine {
 						inverseVertices.Add(x2);
 						inverseVertices.Add(y2);
 					}
+					x1 = x2;
+					y1 = y2;
+					s1 = s2;
 				}
 
 				int fragmentSize = inverseVertices.Count - fragmentStart - 1;
