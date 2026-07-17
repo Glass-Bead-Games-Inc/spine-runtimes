@@ -34,3 +34,6 @@ func _on_selection_changed() -> void:
 			if player != null:
 				break
 	_dock.bind(player)
+	# auto-open the bottom panel when a SpineAnimationPlayer is selected (like AnimationPlayer)
+	if player != null:
+		make_bottom_panel_item_visible(_dock)
