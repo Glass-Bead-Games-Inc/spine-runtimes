@@ -285,7 +285,9 @@ func _gui_input(event: InputEvent) -> void:
 				accept_event(); return
 			var t2 := time_from_x(event.position.x)
 			if not event.ctrl_pressed: t2 = snap(t2)
-			set_playhead(t2); accept_event()
+			set_playhead(t2)
+			if dock: dock._on_scrub()
+			accept_event()
 		else:
 			if _drag_notify != null and _drag_notify.time != _drag_start_time:
 				_commit_move(_drag_notify, _drag_start_time, _drag_notify.time)
@@ -298,6 +300,7 @@ func _gui_input(event: InputEvent) -> void:
 				move_notify(_drag_notify, t); set_playhead(t)
 			else:
 				set_playhead(t)
+			if dock: dock._on_scrub()
 			accept_event()
 		else:
 			_update_hover(event.position)
