@@ -28,76 +28,47 @@
  *****************************************************************************/
 
 #pragma once
-
 #include "SpineCommon.h"
-
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-
-#include "SpineCommon.h"
-#include "SpineSprite3D.h"
+#include "SpineNotify.h"
 #ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/templates/hash_map.hpp>
+#include <godot_cpp/templates/vector.hpp>
 #else
-#include "scene/3d/node_3d.h"
-#include "scene/resources/material.h"
+#include "core/io/resource.h"
+#include "core/templates/hash_map.h"
+#include "core/templates/vector.h"
 #endif
 
-class SpineBoneNode3D : public Node3D {
-	GDCLASS(SpineBoneNode3D, Node3D)
+// A reusable per-character list of notifies (assign to a SpineAnimationPlayer).
+class SpineNotifyTrack : public Resource {
+	GDCLASS(SpineNotifyTrack, Resource)
 
 protected:
-	String bone_name;
-	int bone_index;
-	SpineConstant::BoneMode bone_mode;
-	bool enabled;
-
-	// Optional debug overlay (like the 2D SpineBoneNode): draws a bone kite AT THIS NODE'S transform, so
-	// you can overlay it on the SpineSprite3D debug bones and confirm they coincide (i.e. the attachment
-	// transform matches the bone). Rendered via a separate RS instance in the node's world scenario.
-	bool debug_bone;
-	float debug_thickness;
-	Color debug_color;
-	RID debug_instance;
-	RID debug_mesh;
-	Ref<Material> debug_material;
-
+	Array notifies;// of SpineNotify
+	// Runtime lookup index: animation name (StringName, interned -> O(1) key compare) -> its
+	// notifies. Lets the player fetch one animation's notifies in O(1) instead of scanning
+	// every animation's notifies each frame. Not serialized; rebuilt lazily after `notifies`
+	// changes, and shared by every SpineAnimationPlayer that references this track.
+	HashMap<StringName, Vector<Ref<SpineNotify>>> index;
+	bool index_dirty = true;
+	void rebuild_index();
 	static void _bind_methods();
-	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
-	void on_before_world_transforms_change(const Variant &_sprite);
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite3D *sprite);
-	void update_debug(SpineSprite3D *sprite);
-	void free_debug();
 
 public:
-	SpineBoneNode3D()
-		: bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true), debug_bone(false), debug_thickness(8.0f),
-		  debug_color(Color(0, 1, 1, 0.6f)) {
+	void set_notifies(const Array &v) {
+		notifies = v;
+		index_dirty = true;
 	}
-	~SpineBoneNode3D();
-
-	void set_bone_name(const String &_bone_name);
-	String get_bone_name();
-
-	void set_bone_mode(SpineConstant::BoneMode v);
-	SpineConstant::BoneMode get_bone_mode();
-
-	void set_enabled(bool v);
-	bool get_enabled();
-
-	void set_debug_bone(bool v);
-	bool get_debug_bone();
-	void set_debug_thickness(float v);
-	float get_debug_thickness();
-	void set_debug_color(const Color &v);
-	Color get_debug_color();
-
-	int get_bone_index() {
-		return bone_index;
+	Array get_notifies() const {
+		return notifies;
+	}
+	// O(1) lookup of the notifies belonging to one animation (index rebuilt lazily).
+	const Vector<Ref<SpineNotify>> &get_notifies_for_animation(const StringName &animation_name);
+	// Force the index to rebuild on next lookup (call if a notify's animation_name changed in place).
+	void invalidate_index() {
+		index_dirty = true;
 	}
 };
-
-#endif// _3D_DISABLED
+#endif

@@ -27,60 +27,33 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#pragma once
-
 #include "SpineCommon.h"
-
+#include "SpineNotifyTrack.h"
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
-#include "SpineCommon.h"
-#include "SpineSprite3D.h"
-#ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node3d.hpp>
-#else
-#include "scene/3d/node_3d.h"
-#include "scene/resources/material.h"
+void SpineNotifyTrack::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_notifies", "v"), &SpineNotifyTrack::set_notifies);
+	ClassDB::bind_method(D_METHOD("get_notifies"), &SpineNotifyTrack::get_notifies);
+	// Typed-array inspector hint: Array of SpineNotify resources.
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "notifies", PROPERTY_HINT_ARRAY_TYPE,
+							  vformat("%d/%d:%s", Variant::OBJECT, PROPERTY_HINT_RESOURCE_TYPE, "SpineNotify")),
+				 "set_notifies", "get_notifies");
+}
+
+void SpineNotifyTrack::rebuild_index() {
+	index.clear();
+	for (int i = 0; i < notifies.size(); i++) {
+		Ref<SpineNotify> n = notifies[i];
+		if (n.is_null()) continue;
+		index[StringName(n->get_animation_name())].push_back(n);
+	}
+	index_dirty = false;
+}
+
+const Vector<Ref<SpineNotify>> &SpineNotifyTrack::get_notifies_for_animation(const StringName &animation_name) {
+	if (index_dirty) rebuild_index();
+	if (index.has(animation_name)) return index[animation_name];
+	static const Vector<Ref<SpineNotify>> empty;
+	return empty;
+}
 #endif
-
-class SpineSlotNode3D : public Node3D {
-	GDCLASS(SpineSlotNode3D, Node3D)
-
-protected:
-	String slot_name;
-	int slot_index;
-	Ref<Material> normal_material;
-	Ref<Material> additive_material;
-	Ref<Material> multiply_material;
-	Ref<Material> screen_material;
-
-	static void _bind_methods();
-	void _notification(int what);
-	void _validate_property(PropertyInfo &property) const;
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite3D *sprite);
-
-public:
-	SpineSlotNode3D() : slot_index(-1) {
-	}
-
-	void set_slot_name(const String &_slot_name);
-	String get_slot_name();
-
-	int get_slot_index() {
-		return slot_index;
-	}
-
-	Ref<Material> get_normal_material();
-	void set_normal_material(Ref<Material> material);
-
-	Ref<Material> get_additive_material();
-	void set_additive_material(Ref<Material> material);
-
-	Ref<Material> get_multiply_material();
-	void set_multiply_material(Ref<Material> material);
-
-	Ref<Material> get_screen_material();
-	void set_screen_material(Ref<Material> material);
-};
-
-#endif// _3D_DISABLED

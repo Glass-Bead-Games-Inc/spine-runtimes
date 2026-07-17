@@ -27,60 +27,26 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#pragma once
-
 #include "SpineCommon.h"
-
+#include "SpineNotify.h"
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 
-#include "SpineCommon.h"
-#include "SpineSprite3D.h"
-#ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node3d.hpp>
-#else
-#include "scene/3d/node_3d.h"
-#include "scene/resources/material.h"
+void SpineNotify::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_animation_name", "v"), &SpineNotify::set_animation_name);
+	ClassDB::bind_method(D_METHOD("get_animation_name"), &SpineNotify::get_animation_name);
+	ClassDB::bind_method(D_METHOD("set_time", "v"), &SpineNotify::set_time);
+	ClassDB::bind_method(D_METHOD("get_time"), &SpineNotify::get_time);
+	ClassDB::bind_method(D_METHOD("set_notify_name", "v"), &SpineNotify::set_notify_name);
+	ClassDB::bind_method(D_METHOD("get_notify_name"), &SpineNotify::get_notify_name);
+	ClassDB::bind_method(D_METHOD("set_channel", "v"), &SpineNotify::set_channel);
+	ClassDB::bind_method(D_METHOD("get_channel"), &SpineNotify::get_channel);
+	ClassDB::bind_method(D_METHOD("set_payload", "v"), &SpineNotify::set_payload);
+	ClassDB::bind_method(D_METHOD("get_payload"), &SpineNotify::get_payload);
+
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "animation_name"), "set_animation_name", "get_animation_name");
+	ADD_PROPERTY(PropertyInfo(VARIANT_FLOAT, "time"), "set_time", "get_time");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "notify_name"), "set_notify_name", "get_notify_name");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "channel"), "set_channel", "get_channel");
+	ADD_PROPERTY(PropertyInfo(Variant::DICTIONARY, "payload"), "set_payload", "get_payload");
+}
 #endif
-
-class SpineSlotNode3D : public Node3D {
-	GDCLASS(SpineSlotNode3D, Node3D)
-
-protected:
-	String slot_name;
-	int slot_index;
-	Ref<Material> normal_material;
-	Ref<Material> additive_material;
-	Ref<Material> multiply_material;
-	Ref<Material> screen_material;
-
-	static void _bind_methods();
-	void _notification(int what);
-	void _validate_property(PropertyInfo &property) const;
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite3D *sprite);
-
-public:
-	SpineSlotNode3D() : slot_index(-1) {
-	}
-
-	void set_slot_name(const String &_slot_name);
-	String get_slot_name();
-
-	int get_slot_index() {
-		return slot_index;
-	}
-
-	Ref<Material> get_normal_material();
-	void set_normal_material(Ref<Material> material);
-
-	Ref<Material> get_additive_material();
-	void set_additive_material(Ref<Material> material);
-
-	Ref<Material> get_multiply_material();
-	void set_multiply_material(Ref<Material> material);
-
-	Ref<Material> get_screen_material();
-	void set_screen_material(Ref<Material> material);
-};
-
-#endif// _3D_DISABLED

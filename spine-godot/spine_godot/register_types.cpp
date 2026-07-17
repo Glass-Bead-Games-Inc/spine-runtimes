@@ -76,6 +76,9 @@
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 #include "SpineSlotNode3D.h"
 #include "SpineBoneNode3D.h"
+#include "SpineNotify.h"
+#include "SpineNotifyTrack.h"
+#include "SpineAnimationPlayer.h"
 #endif// 3D (Godot 4.x only)
 #include "spine/Bone.h"
 
@@ -197,6 +200,9 @@ void register_spine_godot_types() {
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
 	GDREGISTER_CLASS(SpineSlotNode3D);
 	GDREGISTER_CLASS(SpineBoneNode3D);
+	GDREGISTER_CLASS(SpineNotify);
+	GDREGISTER_CLASS(SpineNotifyTrack);
+	GDREGISTER_CLASS(SpineAnimationPlayer);
 #endif// 3D (Godot 4.x only)
 #ifndef SPINE_GODOT_EXTENSION
 	GDREGISTER_CLASS(SpineAnimationTrack);

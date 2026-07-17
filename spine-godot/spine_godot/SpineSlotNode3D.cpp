@@ -48,6 +48,13 @@ void SpineSlotNode3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_slot_name"), &SpineSlotNode3D::get_slot_name);
 	ClassDB::bind_method(D_METHOD("get_slot_index"), &SpineSlotNode3D::get_slot_index);
 
+	// Top-level slot picker. Registered as a real property BEFORE the Materials group so it renders at the
+	// top of the node (like SpineBoneNode3D's bone_name) instead of being swallowed by the group. Its enum
+	// of slot names is filled dynamically in _validate_property(). NOTE: adding it from _get_property_list
+	// instead put it AFTER the bound material properties (the GDExtension appends dynamic props last), which
+	// is exactly what pushed it inside "Materials".
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "slot_name", PROPERTY_HINT_ENUM, ""), "set_slot_name", "get_slot_name");
+
 	ADD_GROUP("Materials", "");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "normal_material", PROPERTY_HINT_RESOURCE_TYPE, "Material"), "set_normal_material",
 				 "get_normal_material");
@@ -69,11 +76,23 @@ void SpineSlotNode3D::_notification(int what) {
 #else
 				sprite->connect(SNAME("world_transforms_changed"), this, SNAME("_on_world_transforms_changed"));
 #endif
+				// Billboard needs a per-frame re-solve: the billboard basis depends on the active CAMERA,
+				// which moves independently of the skeleton (world_transforms_changed only fires on skeleton
+				// updates). Internal process handles that; it no-ops when billboard is off. Mirrors SpineBoneNode3D.
+				set_process_internal(true);
 				update_transform(sprite);
 			} else {
 				WARN_PRINT("SpineSlotNode3D parent is not a SpineSprite3D.");
 			}
 			NOTIFY_PROPERTY_LIST_CHANGED();
+			break;
+		}
+		case NOTIFICATION_INTERNAL_PROCESS: {
+			// Re-solve every frame while the parent is billboarded so an attached scene tracks the camera
+			// (which moves independently of the skeleton). Stays signal-driven otherwise.
+			SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
+			if (!sprite) break;
+			if (sprite->get_billboard() != SpineSprite3D::BILLBOARD_DISABLED) update_transform(sprite);
 			break;
 		}
 		case NOTIFICATION_UNPARENTED: {
@@ -92,7 +111,10 @@ void SpineSlotNode3D::_notification(int what) {
 	}
 }
 
-void SpineSlotNode3D::_get_property_list(List<PropertyInfo> *list) const {
+// Fill slot_name's enum with the parent skeleton's slot names. _validate_property modifies the already
+// registered property in place, so it keeps its top-of-node position (unlike a _get_property_list insert).
+void SpineSlotNode3D::_validate_property(PropertyInfo &property) const {
+	if (property.name != StringName("slot_name")) return;
 #ifdef SPINE_GODOT_EXTENSION
 	PackedStringArray slot_names;
 #else
@@ -102,39 +124,9 @@ void SpineSlotNode3D::_get_property_list(List<PropertyInfo> *list) const {
 	if (sprite && sprite->get_skeleton_data_res().is_valid())
 		sprite->get_skeleton_data_res()->get_slot_names(slot_names);
 	else
-		slot_names.push_back(slot_name);
-
-	auto element = list->front();
-	while (element) {
-		auto property_info = element->get();
-		if (property_info.name == StringName("SpineSlotNode3D")) break;
-		element = element->next();
-	}
-	PropertyInfo slot_name_property;
-	slot_name_property.name = "slot_name";
-	slot_name_property.type = Variant::STRING;
-	slot_name_property.hint_string = String(",").join(slot_names);
-	slot_name_property.hint = PROPERTY_HINT_ENUM;
-	slot_name_property.usage = PROPERTY_USAGE_DEFAULT;
-	list->insert_after(element, slot_name_property);
-}
-
-bool SpineSlotNode3D::_get(const StringName &property, Variant &value) const {
-	if (property == StringName("slot_name")) {
-		value = slot_name;
-		return true;
-	}
-	return false;
-}
-
-bool SpineSlotNode3D::_set(const StringName &property, const Variant &value) {
-	if (property == StringName("slot_name")) {
-		slot_name = value;
-		SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent());
-		update_transform(sprite);
-		return true;
-	}
-	return false;
+		slot_names.push_back(slot_name);// keep the current value visible until parented to a SpineSprite3D
+	property.hint = PROPERTY_HINT_ENUM;
+	property.hint_string = String(",").join(slot_names);
 }
 
 void SpineSlotNode3D::on_world_transforms_changed(const Variant &_sprite) {
@@ -157,32 +149,49 @@ void SpineSlotNode3D::update_transform(SpineSprite3D *sprite) {
 	spine::Bone *bone = bone_ref->get_spine_object();
 	if (!bone) return;
 
-	// Depth must match SpineSprite3D::build_meshes(), which places each slot's
-	// attachment quad at z = -(draw_order_position) * z_spacing. The setup-pose data
-	// index differs from the draw-order position once a DrawOrderTimeline reorders
-	// slots, so derive z from the slot's current position in the applied draw order.
+	// Depth must match how SpineSprite3D::build_meshes() lays out each slot's attachment quad. The display
+	// shader does TWO things per part (see build_shader_source): (1) VERTEX.z *= z_spacing — a local +Z
+	// layer offset of -(pos)*z_spacing; and (2) a VIEW-SPACE push `_vpos.z -= _draw_index * depth_offset`
+	// (= +pos*depth_offset toward the camera). The NET depth toward the camera is pos*(depth_offset - z_spacing)
+	// — and because depth_offset usually EXCEEDS z_spacing, that term dominates and is what actually orders the
+	// parts. So the node z must include BOTH: z = pos*(depth_offset - z_spacing). (Using only -pos*z_spacing —
+	// as before — puts the child on the far side of EVERY part, so an attached scene renders behind the whole
+	// character.) We approximate the view-space depth_offset push as local +Z, which is exact for a front-facing
+	// or billboarded view; the setup-pose data index differs from the draw-order position once a DrawOrderTimeline
+	// reorders slots, so derive pos from the slot's current position in the applied draw order.
 	float z = 0.0f;
 	float z_spacing = sprite->get_z_spacing();
-	if (z_spacing != 0.0f) {
+	float depth_offset = sprite->get_depth_offset();
+	if (z_spacing != 0.0f || depth_offset != 0.0f) {
 		spine::Skeleton *spine_skeleton = sprite->get_skeleton()->get_spine_object();
 		if (spine_skeleton) {
 			spine::Array<spine::Slot *> &draw_order = spine_skeleton->getDrawOrder().getAppliedPose();
 			for (int pos = 0, n = (int) draw_order.size(); pos < n; pos++) {
 				spine::Slot *slot = draw_order[pos];
 				if (slot && slot->getData().getIndex() == slot_index) {
-					z = -((float) pos) * z_spacing;
+					z = ((float) pos) * (depth_offset - z_spacing);
 					break;
 				}
 			}
 		}
 	}
 
-	// Place this node in sprite-local space at the slot's bone position, at slot depth
-	set_transform(sprite->bone_to_transform3d(bone, z));
+	// Place this node at the slot's bone position + slot depth. When the body is billboarded, the display
+	// shader renders the card at the sprite ORIGIN with a camera-facing basis (the sprite's own rotation/
+	// scale discarded), so put this node in that same billboarded frame — otherwise an attached scene stays
+	// in the flat local card plane instead of on the visible slot. Mirrors SpineBoneNode3D.
+	Transform3D local = sprite->bone_to_transform3d(bone, z);
+	Basis bb;
+	if (sprite->get_billboard_basis(bb)) {
+		set_global_transform(Transform3D(bb, sprite->get_global_transform().origin) * local);
+	} else {
+		set_transform(local);
+	}
 }
 
 void SpineSlotNode3D::set_slot_name(const String &_slot_name) {
 	slot_name = _slot_name;
+	update_transform(Object::cast_to<SpineSprite3D>(get_parent()));
 }
 
 String SpineSlotNode3D::get_slot_name() {

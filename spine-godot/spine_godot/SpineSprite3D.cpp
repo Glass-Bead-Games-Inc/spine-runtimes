@@ -54,11 +54,13 @@
 #include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/classes/mesh.hpp>
-#include <godot_cpp/classes/world3d.hpp>      // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
-#include <godot_cpp/classes/image.hpp>        // Fix #2: Texture2D::get_image() return type
-#include <godot_cpp/classes/image_texture.hpp>// Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
-#include <godot_cpp/classes/camera3d.hpp>     // silhouette buffer: read the active camera's projection/transform
-#include <godot_cpp/classes/viewport.hpp>     // silhouette buffer: get_viewport()->get_camera_3d()/get_visible_rect()
+#include <godot_cpp/classes/world3d.hpp>         // get_world_3d()->get_scenario(): World3D is only forward-declared by node3d.hpp
+#include <godot_cpp/classes/image.hpp>           // Fix #2: Texture2D::get_image() return type
+#include <godot_cpp/classes/image_texture.hpp>   // Fix #2: ImageTexture::create_from_image (GDExtension 3D-safe copy)
+#include <godot_cpp/classes/camera3d.hpp>        // silhouette buffer: read the active camera's projection/transform
+#include <godot_cpp/classes/viewport.hpp>        // silhouette buffer: get_viewport()->get_camera_3d()/get_visible_rect()
+#include <godot_cpp/classes/editor_interface.hpp>// design-time billboard: fall back to the editor 3D camera
+#include <godot_cpp/classes/sub_viewport.hpp>    // EditorInterface::get_editor_viewport_3d() return type
 #include <godot_cpp/variant/variant.hpp>
 #else
 #include "scene/resources/shader.h"
@@ -67,7 +69,10 @@
 #include "scene/resources/image_texture.h"// Fix #2: ImageTexture / Texture2D (3D-safe copy path is extension-only, kept for parity)
 #include "core/config/engine.h"           // Engine::get_singleton(); not transitively included in Godot 4.7
 #include "scene/3d/camera_3d.h"           // silhouette buffer: active camera projection/transform
-#include "scene/main/viewport.h"          // silhouette buffer: get_viewport()->get_camera_3d()
+#include "scene/main/viewport.h"          // silhouette buffer: get_viewport()->get_camera_3d() (also declares SubViewport)
+#ifdef TOOLS_ENABLED
+#include "editor/editor_interface.h"// design-time billboard: fall back to the editor 3D camera
+#endif
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
 #include "servers/rendering/rendering_server.h"
 #else
@@ -395,8 +400,12 @@ private:
 	// the debug lines would themselves cast (garbage) shadows. Disabling shadows on the lines material
 	// makes it never cast even when rendered through the shadow instance.
 	static String build_lines_shader_source() {
+		// blend_mix makes this a TRANSPARENT surface so it draws in the transparent pass AFTER all the
+		// opaque character parts — i.e. always on top, like the 2D debug overlay and the SpineBoneNode3D
+		// debug kite. Without it the overlay is opaque and (despite depth_test_disabled) gets overdrawn by
+		// the character's later opaque surfaces, so the bones only show where they poke past the silhouette.
 		return String("shader_type spatial;\n"
-					  "render_mode unshaded, cull_disabled, depth_test_disabled, shadows_disabled;\n"
+					  "render_mode unshaded, cull_disabled, depth_test_disabled, shadows_disabled, blend_mix;\n"
 					  "\n"
 					  "uniform int billboard_mode = 0; // 0 disabled, 1 enabled, 2 y\n"
 					  "\n"
@@ -748,6 +757,7 @@ void SpineSprite3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("get_global_bone_transform_3d", "bone_name"), &SpineSprite3D::get_global_bone_transform_3d);
 	ClassDB::bind_method(D_METHOD("set_global_bone_transform_3d", "bone_name", "xform"), &SpineSprite3D::set_global_bone_transform_3d);
+	ClassDB::bind_method(D_METHOD("pose_at", "animation_name", "time"), &SpineSprite3D::pose_at);
 
 	// Task 11: debug overlay bindings
 	ClassDB::bind_method(D_METHOD("set_debug_root", "v"), &SpineSprite3D::set_debug_root);
@@ -2146,8 +2156,17 @@ void SpineSprite3D::build_debug_mesh() {
 	auto emit_bone_kite = [&](spine::Bone *bone, const Color &col) {
 		if (!bone || !bone->isActive()) return;
 		auto &bp = bone->getAppliedPose();
-		float a = bp.getA(), b = bp.getB(), c = bp.getC(), d = bp.getD();
 		float wx = bp.getWorldX(), wy = bp.getWorldY();
+		// Match SpineSprite::draw_bone (the 2D reference): build the kite from the bone's world ROTATION
+		// (getWorldRotationX) + world SCALE (getWorldScaleX/Y), NOT the full a/b/c/d matrix. The full
+		// matrix additionally bakes in SHEAR and the reflection of flipped bones, which skews / mirrors
+		// the kite for exactly those bones and makes it disagree with the 2D debug view (the "a few bones
+		// look different" cases — e.g. the mirrored _left/_right aim poses). Rotation+scale keeps every
+		// bone's kite identical to 2D. (The actual bone transform used by SpineBoneNode3D still uses the
+		// full a/b/c/d matrix, which is correct for parenting attachments; this only affects the overlay.)
+		float rot = spine::MathUtil::Deg_Rad * bp.getWorldRotationX();
+		float cr = spine::MathUtil::cos(rot), sr = spine::MathUtil::sin(rot);
+		float wsx = bp.getWorldScaleX(), wsy = bp.getWorldScaleY();
 		float bone_length = bone->getData().getLength();
 		float t = debug_bones_thickness;
 		if (bone_length == 0) bone_length = t * 2.0f;
@@ -2158,8 +2177,11 @@ void SpineSprite3D::build_debug_mesh() {
 
 		int base = (int) tri_positions.size();
 		for (int k = 0; k < 4; k++) {
-			float sxp = a * lx[k] + c * ly[k] + wx;
-			float syp = b * lx[k] + d * ly[k] + wy;
+			// Transform2D(rotation, scale) order: scale the local point, rotate, then translate by world.
+			float px = wsx * lx[k];
+			float py = wsy * ly[k];
+			float sxp = wx + (cr * px - sr * py);
+			float syp = wy + (sr * px + cr * py);
 			tri_positions.push_back(Vector3(sxp * sx, syp * sy, z_eps));
 			tri_colors.push_back(col);
 		}
@@ -3039,22 +3061,75 @@ Transform3D SpineSprite3D::bone_to_transform3d(spine::Bone *bone, float slot_z) 
 	float wx = bone->getAppliedPose().getWorldX() * pixel_size * fx;
 	float wy = -bone->getAppliedPose().getWorldY() * pixel_size * fv;
 
-	Vector3 col0(a * fx, -b * fv, 0);// X axis: validated (a,-b,0) with flip diagonal applied
-	Vector3 col1(-c * fx, d * fv, 0);// Y axis: validated (-c,d,0) with flip diagonal applied
-
-	// F4: keep Z well-formed and consistent with the in-plane scale (avoids a degenerate
-	// unit Z when the bone's in-plane scale differs). Sign tracks the handedness flips so the
-	// basis determinant stays consistent with the geometry. Falls back to 1 for zero-scale bones.
+	// Map the bone's spine axes into 3D the SAME way build_meshes() maps mesh vertices and the debug
+	// bone overlay maps its kite: spine (x,y) -> 3D (x*sx, y*sy) with sx = fx, sy = -fv. pixel_size lives
+	// in the position (not the basis), so a child inherits the bone's pixel-scale, not pixel_size.
+	// Spine's world matrix is COLUMN-major for the axes (localToWorld: worldX = a*x + b*y, worldY = c*x + d*y),
+	// so the bone's axes are:
+	//   X axis = image of (1,0) = spine (a,c) -> (a*fx, -c*fv)
+	//   Y axis = image of (0,1) = spine (b,d) -> (b*fx, -d*fv)
+	// This matches the 2D SpineBone::get_global_transform (local[0]=(a,c), local[1]=(b,d)) and the debug
+	// kite, whose X axis is getWorldRotationX/getWorldScaleX = atan2(c,a)/sqrt(a*a+c*c) = spine (a,c).
+	// (An earlier version used (a,b)/(c,d) — matrix ROWS — which is invisible for unrotated bones like the
+	// root, but reflects the X axis of every rotated bone, so attachments drifted off rotated bones.)
+	// Z is the cross product, so its sign naturally tracks the mesh's Y-flip reflection.
+	Vector3 col0(a * fx, -c * fv, 0);
+	Vector3 col1(b * fx, -d * fv, 0);
 	float in_plane_scale = col0.length();
 	if (in_plane_scale <= 0.0f) in_plane_scale = 1.0f;
-	float zlen = in_plane_scale * fx * fv;// fx*fv keeps determinant sign consistent under flips
-	Vector3 col2(0, 0, zlen);             // Z normal (into screen)
+	Vector3 col2 = col0.cross(col1);
+	if (col2.length() <= 0.0f)
+		col2 = Vector3(0, 0, in_plane_scale);
+	else
+		col2 = col2.normalized() * in_plane_scale;
 
 	Basis basis;
 	basis.set_column(0, col0);
 	basis.set_column(1, col1);
 	basis.set_column(2, col2);
 	return Transform3D(basis, Vector3(wx, wy, slot_z));
+}
+
+// Design-time fallback: in the editor there is no "current" game Camera3D, but the body still billboards
+// because its shader reads that viewport's INV_VIEW_MATRIX (the editor camera). Hand a Follow attachment the
+// same editor camera so it tracks at design time instead of freezing in the flat card plane. Returns null
+// in a running game / export template (there Engine::is_editor_hint() is false, or EditorInterface is absent).
+static Camera3D *spine_get_editor_camera_3d() {
+#if defined(SPINE_GODOT_EXTENSION) || defined(TOOLS_ENABLED)
+	if (!Engine::get_singleton()->is_editor_hint()) return nullptr;
+	EditorInterface *ei = EditorInterface::get_singleton();
+	if (!ei) return nullptr;
+	SubViewport *ev = ei->get_editor_viewport_3d(0);
+	return ev ? ev->get_camera_3d() : nullptr;
+#else
+	return nullptr;
+#endif
+}
+
+bool SpineSprite3D::get_billboard_basis(Basis &out) const {
+	if (billboard == BILLBOARD_DISABLED || !is_inside_tree()) return false;
+	Viewport *vp = get_viewport();
+	Camera3D *cam = vp ? vp->get_camera_3d() : nullptr;
+	if (!cam) cam = spine_get_editor_camera_3d();
+	if (!cam) return false;
+	// INV_VIEW_MATRIX in the shader == the camera's global transform. Reproduce the same billboard basis
+	// the vertex() builds (see build_shader_source): full billboard uses the camera basis directly; the
+	// Y variant keeps world-up and rotates about it to face the camera.
+	Basis cb = cam->get_global_transform().basis;
+	Vector3 cam_x = cb.get_column(0), cam_y = cb.get_column(1), cam_z = cb.get_column(2);
+	Basis b;
+	if (billboard == BILLBOARD_ENABLED) {
+		b.set_column(0, cam_x);
+		b.set_column(1, cam_y);
+		b.set_column(2, cam_z);
+	} else {// BILLBOARD_Y
+		Vector3 up(0, 1, 0);
+		b.set_column(0, up.cross(cam_z).normalized());
+		b.set_column(1, up);
+		b.set_column(2, cam_x.cross(up).normalized());
+	}
+	out = b;
+	return true;
 }
 
 Transform3D SpineSprite3D::get_global_bone_transform_3d(const String &bone_name) {
@@ -3081,20 +3156,41 @@ void SpineSprite3D::set_global_bone_transform_3d(const String &bone_name, Transf
 	// Since fx, fv are ±1, dividing by them is the same as multiplying by them.
 	const float fx = flip_h ? -1.0f : 1.0f;
 	const float fv = flip_v ? -1.0f : 1.0f;
-	Vector3 col0 = local.basis.get_column(0);// (a*fx, -b*fv, ...)
-	Vector3 col1 = local.basis.get_column(1);// (-c*fx, d*fv, ...)
+	Vector3 col0 = local.basis.get_column(0);// (a*fx, -c*fv, ...) — spine X axis (a,c)
+	Vector3 col1 = local.basis.get_column(1);// (b*fx, -d*fv, ...) — spine Y axis (b,d)
 
 	auto &pose = bone->getAppliedPose();
-	pose.setA(col0.x * fx);
-	pose.setB(-col0.y * fv);
-	pose.setC(-col1.x * fx);
-	pose.setD(col1.y * fv);
+	pose.setA(col0.x * fx); // a
+	pose.setB(col1.x * fx); // b
+	pose.setC(-col0.y * fv);// c
+	pose.setD(-col1.y * fv);// d
 	pose.setWorldX(origin.x * fx / pixel_size);
 	pose.setWorldY(-origin.y * fv / pixel_size);
 	pose.updateLocalTransform(*skeleton->get_spine_object());
 	bone->getPose().set(pose);
 
 	modified_bones = true;
+}
+
+void SpineSprite3D::pose_at(const String &animation_name, float time) {
+	if (!skeleton.is_valid() || !skeleton->get_spine_object()) return;
+	if (!animation_state.is_valid() || !animation_state->get_spine_object()) return;
+	skeleton->set_to_setup_pose();
+	if (animation_name.is_empty()) return;
+	Ref<SpineTrackEntry> entry = animation_state->set_animation(animation_name, false, 0);
+	if (entry.is_valid() && entry->get_spine_object()) {
+		entry->set_mix_duration(0);
+		entry->set_time_scale(0);
+		entry->set_track_time(time);
+	}
+	animation_state->update(0);
+	animation_state->apply(skeleton);
+	skeleton->update_world_transform(SpineConstant::Physics_Update);
+	emit_signal(SNAME("world_transforms_changed"), this);// so SpineBoneNode3D/SpineSlotNode3D children follow the scrub
+	if (is_visible_in_tree()) {
+		build_meshes();
+		build_debug_mesh();
+	}
 }
 
 #endif// _3D_DISABLED

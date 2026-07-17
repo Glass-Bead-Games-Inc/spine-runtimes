@@ -30,6 +30,10 @@
 #include "SpineSkeletonDataResource.h"
 #include "SpineCommon.h"
 
+#include <spine/EventTimeline.h>
+#include <spine/Event.h>
+#include <spine/EventData.h>
+
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/classes/encoded_object_as_id.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -133,6 +137,7 @@ void SpineSkeletonDataResource::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_default_skin", "skin"), &SpineSkeletonDataResource::set_default_skin);
 	ClassDB::bind_method(D_METHOD("get_events"), &SpineSkeletonDataResource::get_events);
 	ClassDB::bind_method(D_METHOD("get_animations"), &SpineSkeletonDataResource::get_animations);
+	ClassDB::bind_method(D_METHOD("get_animation_events", "animation_name"), &SpineSkeletonDataResource::get_animation_events);
 	ClassDB::bind_method(D_METHOD("get_ik_constraints"), &SpineSkeletonDataResource::get_ik_constraints);
 	ClassDB::bind_method(D_METHOD("get_transform_constraints"), &SpineSkeletonDataResource::get_transform_constraints);
 	ClassDB::bind_method(D_METHOD("get_path_constraints"), &SpineSkeletonDataResource::get_path_constraints);
@@ -651,6 +656,35 @@ Array SpineSkeletonDataResource::get_animations() const {
 		Ref<SpineAnimation> animation_ref(memnew(SpineAnimation));
 		animation_ref->set_spine_object(this, animations[i]);
 		result[i] = animation_ref;
+	}
+	return result;
+}
+
+Array SpineSkeletonDataResource::get_animation_events(const String &animation_name) {
+	Array result;
+	SPINE_CHECK(skeleton_data, result)
+	auto animation = skeleton_data->findAnimation(SPINE_STRING_TMP(animation_name));
+	if (!animation) return result;
+	auto &timelines = animation->getTimelines();
+	for (size_t i = 0; i < timelines.size(); ++i) {
+		auto *tl = timelines[i];
+		if (!tl || !tl->getRTTI().isExactly(spine::EventTimeline::rtti)) continue;
+		auto *et = (spine::EventTimeline *) tl;
+		auto &events = et->getEvents();
+		for (size_t j = 0; j < events.size(); ++j) {
+			auto *e = events[j];
+			if (!e) continue;
+			Dictionary d;
+			d["time"] = e->getTime();
+			String name;
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
+			name = String::utf8(e->getData().getName().buffer());
+#else
+			name.parse_utf8(e->getData().getName().buffer());
+#endif
+			d["name"] = name;
+			result.append(d);
+		}
 	}
 	return result;
 }

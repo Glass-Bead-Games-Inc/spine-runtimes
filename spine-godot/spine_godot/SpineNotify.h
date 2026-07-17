@@ -28,76 +28,56 @@
  *****************************************************************************/
 
 #pragma once
-
 #include "SpineCommon.h"
-
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-
-#include "SpineCommon.h"
-#include "SpineSprite3D.h"
 #ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/classes/resource.hpp>
 #else
-#include "scene/3d/node_3d.h"
-#include "scene/resources/material.h"
+#include "core/io/resource.h"
 #endif
 
-class SpineBoneNode3D : public Node3D {
-	GDCLASS(SpineBoneNode3D, Node3D)
+// One "notify": a named trigger placed at a time on a specific animation.
+class SpineNotify : public Resource {
+	GDCLASS(SpineNotify, Resource)
 
 protected:
-	String bone_name;
-	int bone_index;
-	SpineConstant::BoneMode bone_mode;
-	bool enabled;
-
-	// Optional debug overlay (like the 2D SpineBoneNode): draws a bone kite AT THIS NODE'S transform, so
-	// you can overlay it on the SpineSprite3D debug bones and confirm they coincide (i.e. the attachment
-	// transform matches the bone). Rendered via a separate RS instance in the node's world scenario.
-	bool debug_bone;
-	float debug_thickness;
-	Color debug_color;
-	RID debug_instance;
-	RID debug_mesh;
-	Ref<Material> debug_material;
-
+	String animation_name;
+	float time = 0.0f;
+	String notify_name;
+	String channel = "default";
+	Dictionary payload;
 	static void _bind_methods();
-	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
-	void on_before_world_transforms_change(const Variant &_sprite);
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite3D *sprite);
-	void update_debug(SpineSprite3D *sprite);
-	void free_debug();
 
 public:
-	SpineBoneNode3D()
-		: bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true), debug_bone(false), debug_thickness(8.0f),
-		  debug_color(Color(0, 1, 1, 0.6f)) {
+	void set_animation_name(const String &v) {
+		animation_name = v;
 	}
-	~SpineBoneNode3D();
-
-	void set_bone_name(const String &_bone_name);
-	String get_bone_name();
-
-	void set_bone_mode(SpineConstant::BoneMode v);
-	SpineConstant::BoneMode get_bone_mode();
-
-	void set_enabled(bool v);
-	bool get_enabled();
-
-	void set_debug_bone(bool v);
-	bool get_debug_bone();
-	void set_debug_thickness(float v);
-	float get_debug_thickness();
-	void set_debug_color(const Color &v);
-	Color get_debug_color();
-
-	int get_bone_index() {
-		return bone_index;
+	String get_animation_name() const {
+		return animation_name;
+	}
+	void set_time(float v) {
+		time = v;
+	}
+	float get_time() const {
+		return time;
+	}
+	void set_notify_name(const String &v) {
+		notify_name = v;
+	}
+	String get_notify_name() const {
+		return notify_name;
+	}
+	void set_channel(const String &v) {
+		channel = v;
+	}
+	String get_channel() const {
+		return channel;
+	}
+	void set_payload(const Dictionary &v) {
+		payload = v;
+	}
+	Dictionary get_payload() const {
+		return payload;
 	}
 };
-
-#endif// _3D_DISABLED
+#endif

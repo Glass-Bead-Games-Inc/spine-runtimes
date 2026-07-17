@@ -28,76 +28,59 @@
  *****************************************************************************/
 
 #pragma once
-
 #include "SpineCommon.h"
-
 #if VERSION_MAJOR > 3 && !defined(_3D_DISABLED)
-
-#include "SpineCommon.h"
 #include "SpineSprite3D.h"
+#include "SpineNotifyTrack.h"
 #ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/classes/node.hpp>
 #else
-#include "scene/3d/node_3d.h"
-#include "scene/resources/material.h"
+#include "scene/main/node.h"
 #endif
 
-class SpineBoneNode3D : public Node3D {
-	GDCLASS(SpineBoneNode3D, Node3D)
+class SpineAnimationPlayer : public Node {
+	GDCLASS(SpineAnimationPlayer, Node)
+
+	static const int MAX_TRACKS = 32;
 
 protected:
-	String bone_name;
-	int bone_index;
-	SpineConstant::BoneMode bone_mode;
-	bool enabled;
+	Ref<SpineNotifyTrack> notify_track;
+	bool forward_spine_events = true;
 
-	// Optional debug overlay (like the 2D SpineBoneNode): draws a bone kite AT THIS NODE'S transform, so
-	// you can overlay it on the SpineSprite3D debug bones and confirm they coincide (i.e. the attachment
-	// transform matches the bone). Rendered via a separate RS instance in the node's world scenario.
-	bool debug_bone;
-	float debug_thickness;
-	Color debug_color;
-	RID debug_instance;
-	RID debug_mesh;
-	Ref<Material> debug_material;
+	// Per-track crossing state.
+	float prev_time[MAX_TRACKS];
+	float prev_track_time[MAX_TRACKS];
+	String prev_anim[MAX_TRACKS];
+	bool discontinuity_pending = true;// reset all tracks on next observe (set on parent/seek/play)
 
 	static void _bind_methods();
 	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
-	void on_before_world_transforms_change(const Variant &_sprite);
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite3D *sprite);
-	void update_debug(SpineSprite3D *sprite);
-	void free_debug();
+	void on_before_apply(const Variant &sprite);
+	void on_spine_event(const Variant &sprite, const Variant &state, const Variant &entry, const Variant &event);
+	void emit_forward(const String &anim, float lo, float hi);// fire notifies with lo < time <= hi
 
 public:
-	SpineBoneNode3D()
-		: bone_index(-1), bone_mode(SpineConstant::BoneMode_Follow), enabled(true), debug_bone(false), debug_thickness(8.0f),
-		  debug_color(Color(0, 1, 1, 0.6f)) {
+	SpineAnimationPlayer() {
+		for (int i = 0; i < MAX_TRACKS; i++) {
+			prev_time[i] = 0.0f;
+			prev_track_time[i] = 0.0f;
+		}
 	}
-	~SpineBoneNode3D();
 
-	void set_bone_name(const String &_bone_name);
-	String get_bone_name();
-
-	void set_bone_mode(SpineConstant::BoneMode v);
-	SpineConstant::BoneMode get_bone_mode();
-
-	void set_enabled(bool v);
-	bool get_enabled();
-
-	void set_debug_bone(bool v);
-	bool get_debug_bone();
-	void set_debug_thickness(float v);
-	float get_debug_thickness();
-	void set_debug_color(const Color &v);
-	Color get_debug_color();
-
-	int get_bone_index() {
-		return bone_index;
+	void set_notify_track(const Ref<SpineNotifyTrack> &v) {
+		notify_track = v;
 	}
+	Ref<SpineNotifyTrack> get_notify_track() const {
+		return notify_track;
+	}
+	void set_forward_spine_events(bool v) {
+		forward_spine_events = v;
+	}
+	bool get_forward_spine_events() const {
+		return forward_spine_events;
+	}
+
+	void play(const String &animation_name, bool loop, int track);
+	void seek(float time, int track);
 };
-
-#endif// _3D_DISABLED
+#endif
