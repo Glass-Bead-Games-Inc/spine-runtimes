@@ -39,6 +39,12 @@ var _loop_btn: Button
 var _snap_btn: Button
 var _time_label: Label
 var _extra_channels: Array = []
+var _preview                        # preview_notify_driver — fires notified on forward playback
+var _copy_btn: Button
+var _copy_dialog: ConfirmationDialog
+var _pending_copy: Dictionary = {}
+# 8-direction suffixes, longest first so "_down_left" matches before "_left".
+const _DIR_SUFFIXES := ["_down_left", "_down_right", "_up_left", "_up_right", "_down", "_left", "_right", "_up"]
 
 # palette (matches the approved mock)
 const D_PANEL2 := Color(0.173, 0.184, 0.216)   # #2c2f37
@@ -100,6 +106,8 @@ func setup(p_undo_redo, p_editor_interface) -> void:
 	undo_redo = p_undo_redo
 	editor_interface = p_editor_interface
 	_build_ui()
+	_preview = load("res://addons/spine_notify_editor/preview_notify_driver.gd").new()
+	_preview.setup(self)
 
 func _build_ui() -> void:
 	custom_minimum_size = Vector2(0, 240)
@@ -141,6 +149,14 @@ func _build_ui() -> void:
 	_snap_btn.button_pressed = true
 	_snap_btn.toggled.connect(func(on): if _view: _view.snap_enabled = on; _view.queue_redraw())
 	_toolbar.add_child(_snap_btn)
+	_copy_btn = Button.new()
+	var copy_ic := _editor_icon("ActionCopy")
+	if copy_ic: _copy_btn.icon = copy_ic
+	else: _copy_btn.text = "⧉ dirs"
+	_copy_btn.tooltip_text = "Copy this clip's notifies to its sibling direction clips"
+	_style_btn(_copy_btn)
+	_copy_btn.pressed.connect(_copy_to_siblings)
+	_toolbar.add_child(_copy_btn)
 	_time_label = Label.new()
 	_time_label.add_theme_color_override("font_color", D_INKDIM)
 	_toolbar.add_child(_time_label)
@@ -243,19 +259,23 @@ func _set_active_tp(b) -> void:
 
 func _play_from_start() -> void:
 	if _view: _view.set_playhead(0.0)
+	if _preview: _preview.reset_to(0.0)
 	play_dir = 1; playing = true
 	_set_active_tp(_tp_start)
 
 func _play_from_current() -> void:
+	if _preview and _view: _preview.reset_to(_view.playhead_time)
 	play_dir = 1; playing = true
 	_set_active_tp(_tp_play)
 
 func _play_bw_from_current() -> void:
+	if _preview and _view: _preview.reset_to(_view.playhead_time)
 	play_dir = -1; playing = true
 	_set_active_tp(_tp_bw_from)
 
 func _play_bw_from_end() -> void:
 	if _view: _view.set_playhead(_view.duration())
+	if _preview and _view: _preview.reset_to(_view.duration())
 	play_dir = -1; playing = true
 	_set_active_tp(_tp_bw_end)
 
@@ -264,6 +284,17 @@ func _stop() -> void:
 		_view.set_playhead(0.0)     # second press when stopped -> rewind
 	playing = false
 	_set_active_tp(null)
+	if _preview and _view: _preview.reset_to(_view.playhead_time)
+
+func _on_scrub() -> void:
+	# user scrub (from the view) invalidates the preview pass — reset consumers + re-anchor
+	if _preview and _view:
+		_preview.reset_to(_view.playhead_time)
+
+func _exit_tree() -> void:
+	# dock/plugin teardown -> clear any live preview on the consumers
+	if _preview:
+		_preview.reset_to(0.0)
 
 func _rebuild_headers() -> void:
 	if _headers == null: return
@@ -523,12 +554,21 @@ func _process(delta: float) -> void:
 	if playing and _view.is_visible_in_tree():
 		var dur: float = _view.duration()
 		var t: float = _view.playhead_time + play_dir * delta
-		if play_dir > 0 and t >= dur:
-			if loop_enabled: t = 0.0
-			else: t = dur; playing = false; _set_active_tp(null)
-		elif play_dir < 0 and t <= 0.0:
-			if loop_enabled: t = dur
-			else: t = 0.0; playing = false; _set_active_tp(null)
+		if play_dir > 0:
+			if t >= dur:
+				if _preview: _preview.advance_forward(dur)         # fire end-of-pass notifies first
+				if loop_enabled:
+					if _preview: _preview.reset_to(0.0)            # reset consumers; next pass re-crosses from 0
+					t = 0.0
+				else:
+					t = dur; playing = false; _set_active_tp(null)
+			else:
+				if _preview: _preview.advance_forward(t)
+		else:
+			if _preview: _preview.reset_to(clampf(t, 0.0, dur))    # backward playback never emits
+			if t <= 0.0:
+				if loop_enabled: t = dur
+				else: t = 0.0; playing = false; _set_active_tp(null)
 		_view.set_playhead(t)
 	if _view.is_visible_in_tree():
 		_prune_selection()
@@ -574,6 +614,8 @@ func bind(p_player) -> void:
 		playing = false
 		_set_active_tp(null)
 		_view.set_playhead(0.0)
+	if _preview: _preview.reset_to(0.0)
+	_update_copy_button()
 
 func _refresh_toolbar() -> void:
 	if _anim_dropdown == null: return
@@ -593,6 +635,8 @@ func _on_animation_changed() -> void:
 		_set_active_tp(null)
 		_view.set_playhead(0.0)
 		_view.refresh()
+	if _preview: _preview.reset_to(0.0)
+	_update_copy_button()
 
 func select_animation(anim: String) -> void:
 	for i in _anim_dropdown.item_count:
@@ -600,3 +644,84 @@ func select_animation(anim: String) -> void:
 			_anim_dropdown.select(i)
 			break
 	_on_animation_changed()
+
+# --- Feature B: copy notifies to sibling direction clips ---
+
+func _dir_suffix_of(clip: String) -> String:
+	# the 8-direction suffix on the clip's LAST path segment, longest match first ("" if none)
+	if clip == "": return ""
+	var last_seg: String = clip
+	var slash: int = clip.rfind("/")
+	if slash >= 0: last_seg = clip.substr(slash + 1)
+	for suf in _DIR_SUFFIXES:
+		if last_seg.ends_with(suf):
+			return suf
+	return ""
+
+func _update_copy_button() -> void:
+	if _copy_btn == null: return
+	_copy_btn.disabled = _dir_suffix_of(_current_animation()) == ""
+
+func _copy_to_siblings() -> void:
+	var clip: String = _current_animation()
+	var suf: String = _dir_suffix_of(clip)
+	if suf == "": return
+	var stem: String = clip.substr(0, clip.length() - suf.length())
+	var siblings: Array = []
+	for s in _DIR_SUFFIXES:
+		var nm: String = stem + s
+		if nm != clip and nm in animation_names and not (nm in siblings):
+			siblings.append(nm)
+	if siblings.is_empty(): return
+	var src_count: int = 0
+	if track != null:
+		for n in track.notifies:
+			if n != null and n.animation_name == clip: src_count += 1
+	_pending_copy = {"clip": clip, "siblings": siblings}
+	if _copy_dialog == null:
+		_copy_dialog = ConfirmationDialog.new()
+		_copy_dialog.title = "Copy notifies to sibling directions"
+		_copy_dialog.ok_button_text = "Overwrite"
+		_copy_dialog.confirmed.connect(_on_copy_confirmed)
+		add_child(_copy_dialog)
+	var msg: String = "Overwrite the notifies on %d sibling clip(s) with the %d notif(y/ies) from:\n%s" % [siblings.size(), src_count, clip]
+	for s in siblings:
+		msg += "\n  • " + s
+	_copy_dialog.dialog_text = msg
+	_copy_dialog.popup_centered()
+
+func _on_copy_confirmed() -> void:
+	if _pending_copy.is_empty(): return
+	_do_copy(_pending_copy.get("clip", ""), _pending_copy.get("siblings", []))
+	_pending_copy = {}
+
+func _do_copy(clip: String, siblings: Array) -> void:
+	if track == null or clip == "" or siblings.is_empty(): return
+	var sib_set: Dictionary = {}
+	for s in siblings: sib_set[s] = true
+	# source = the current clip's notifies
+	var src: Array = []
+	for n in track.notifies:
+		if n != null and n.animation_name == clip:
+			src.append(n)
+	# destructive sync: drop every existing notify belonging to a sibling, keep everything
+	# else, then append fresh copies of the source notifies re-keyed to each sibling.
+	var arr: Array = []
+	for n in track.notifies:
+		if n != null and sib_set.has(n.animation_name): continue
+		arr.append(n)
+	for s in siblings:
+		for n in src:
+			var c = SpineNotify.new()
+			c.animation_name = s
+			c.time = n.time
+			c.notify_name = n.notify_name
+			c.channel = n.channel
+			c.payload = n.payload.duplicate(true) if n.payload != null else {}
+			arr.append(c)
+	if _view:
+		_view._set_notifies(arr, "Copy Notifies to Sibling Directions")
+		_view.refresh()
+	else:
+		track.notifies = arr
+		track.emit_changed()
