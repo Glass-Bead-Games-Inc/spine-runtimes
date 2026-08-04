@@ -1092,6 +1092,16 @@ void SpineSprite3D::_notification(int what) {
 			if (silhouette_instance.is_valid()) RS::get_singleton()->instance_set_transform(silhouette_instance, get_global_transform());
 			break;
 		}
+		case NOTIFICATION_VISIBILITY_CHANGED: {
+			// The shadows-only caster and the silhouette-mask instance are raw RS instances, not
+			// scene nodes — node visibility never reaches them automatically, so a hidden sprite
+			// kept casting its shadow (and writing silhouette-mask ids). Mirror the tree
+			// visibility onto both.
+			const bool vis = is_visible_in_tree();
+			if (shadow_instance.is_valid()) RS::get_singleton()->instance_set_visible(shadow_instance, vis);
+			if (silhouette_instance.is_valid()) RS::get_singleton()->instance_set_visible(silhouette_instance, vis);
+			break;
+		}
 		default:
 			break;
 	}
@@ -2062,6 +2072,10 @@ void SpineSprite3D::update_shadow_instance() {
 			// Push the current transform only when (re)attaching; subsequent moves arrive via
 			// NOTIFICATION_TRANSFORM_CHANGED. get_global_transform() does NOT require being in the world.
 			RS::get_singleton()->instance_set_transform(shadow_instance, get_global_transform());
+			// Push the current tree visibility too: NOTIFICATION_VISIBILITY_CHANGED only fires on a
+			// change, so a node that enters the world already hidden would otherwise attach a
+			// visible caster (fix: invisible sprite still cast a shadow).
+			RS::get_singleton()->instance_set_visible(shadow_instance, is_visible_in_tree());
 			// SHADOWS_ONLY: renders the mesh into shadow maps only (never the color pass). The enum's home
 			// differs by build/version: Godot 4.7's module split it into RenderingServerEnums, while Godot
 			// <= 4.6 and the GDExtension keep it on RenderingServer. SPINE_RS_ENUM resolves to the right one
@@ -2822,6 +2836,9 @@ void SpineSprite3D::update_silhouette_instance() {
 	if (scenario_changed || !silhouette_instance_attached) rs->instance_set_scenario(silhouette_instance, scenario);
 	if (reattaching) {
 		rs->instance_set_transform(silhouette_instance, get_global_transform());
+		// Same as the shadow caster: push tree visibility on (re)attach so a node attached
+		// while hidden does not write mask ids (VISIBILITY_CHANGED only fires on a change).
+		rs->instance_set_visible(silhouette_instance, is_visible_in_tree());
 		rs->instance_geometry_set_material_override(silhouette_instance, RID());
 	}
 
