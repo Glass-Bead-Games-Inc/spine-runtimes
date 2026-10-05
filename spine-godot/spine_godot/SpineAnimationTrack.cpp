@@ -309,11 +309,13 @@ void SpineAnimationTrack::setup_animation_player() {
 #endif
 	for (int i = 0; i < (int) animations.size(); i++) {
 		auto animation = animations[i];
-		Ref<Animation> animation_ref = create_animation(animation, false);
-		Ref<Animation> animation_looped_ref = create_animation(animation, true);
+		Ref<Animation> animation_ref = create_animation(animation, false, skeleton_data);
+		Ref<Animation> animation_looped_ref = create_animation(animation, true, skeleton_data);
 #if VERSION_MAJOR > 3
-		animation_library->add_animation(animation_ref->get_name(), animation_ref);
-		animation_library->add_animation(animation_looped_ref->get_name(), animation_looped_ref);
+		ERR_FAIL_COND_MSG(animation_library->add_animation(animation_ref->get_name(), animation_ref) != OK,
+				"Could not register generated Spine animation: " + animation_ref->get_name());
+		ERR_FAIL_COND_MSG(animation_library->add_animation(animation_looped_ref->get_name(), animation_looped_ref) != OK,
+				"Could not register generated Spine animation: " + animation_looped_ref->get_name());
 #else
 		animation_player->add_animation(animation_ref->get_name(), animation_ref);
 		animation_player->add_animation(animation_looped_ref->get_name(), animation_looped_ref);
@@ -347,7 +349,7 @@ void SpineAnimationTrack::setup_animation_player() {
 #endif
 }
 
-Ref<Animation> SpineAnimationTrack::create_animation(spine::Animation *animation, bool loop) {
+Ref<Animation> SpineAnimationTrack::create_animation(spine::Animation *animation, bool loop, spine::SkeletonData *skeleton_data) {
 	float duration = animation->getDuration();
 	if (duration == 0) duration = 0.5;
 
@@ -359,7 +361,21 @@ Ref<Animation> SpineAnimationTrack::create_animation(spine::Animation *animation
 #else
 	name.parse_utf8(animation->getName().buffer());
 #endif
-	animation_ref->set_name(name + (loop ? "" : "_looped"));
+	// Godot library keys cannot contain folder separators or its other reserved
+	// characters. Escape '%' first so literal encoded names remain distinct.
+	String key = name.replace("%", "%25").replace("/", "%2F").replace(":", "%3A").replace(",", "%2C").replace("[", "%5B");
+	// Preserve ordinary keys, but keep a real "walk_looped" clip distinct from
+	// the generated loop variant of "walk", regardless of skeleton clip order.
+	if (name.ends_with("_looped")) {
+		String base_name = name.substr(0, name.length() - 7);
+		if (skeleton_data->findAnimation(SPINE_STRING(base_name))) {
+			key = key.substr(0, key.length() - 7) + "%5Flooped";
+		}
+	}
+	// These two Godot clips have special meanings independent of Spine names.
+	if (name == "RESET") key = "%52ESET";
+	if (name == "-- Empty --") key = "%2D- Empty --";
+	animation_ref->set_name(key + (loop ? "" : "_looped"));
 #if VERSION_MAJOR > 3
 	// animation_ref->set_loop(!loop);
 #else

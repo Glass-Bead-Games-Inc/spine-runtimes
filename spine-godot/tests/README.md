@@ -55,9 +55,13 @@ The test waits for multiple `RenderingServer.frame_post_draw` signals after each
 
 `animation-player.gd` checks both sprite types: generated clips, direct/nested playback, loop/mix options, native poses, callback resource replacement and reparenting. `editor-animation-player.gd` opens the actual AnimationPlayer editor and checks forward/backward clip scrubbing with nested `root_node` paths, native poses, holding the scrubbed pose after closing/switching the editor, inactive-track preview preservation, and AnimationTree-editor clock handoff. Both run against module and GDExtension builds.
 
+`animation-player-names.gd` reproduces issue #2460 with folder-qualified clips in both sprite types. It checks escaped-key collisions, Unicode, generated loop-suffix and RESET/Empty collisions, original Spine animation identity and poses, library completeness, nested playback with project-owned Call Method events, looping events, and resource regeneration. The editor regression uses folder-qualified clips to verify actual forward/backward scrubbing through the encoded keys. Generated Godot identifiers are distinct from the unchanged original Spine names.
+
 ```sh
 "$GODOT" --headless --path /path/to/example-project \
   --script "$(pwd)/spine-godot/tests/animation-player.gd"
+"$GODOT" --headless --path /path/to/example-project \
+  --script "$(pwd)/spine-godot/tests/animation-player-names.gd"
 bash spine-godot/tests/editor-animation-player.sh /absolute/path/to/module-godot
 bash spine-godot/tests/editor-animation-player.sh /absolute/path/to/vanilla-godot \
   "$(pwd)/spine-godot/example-v4-extension/bin"

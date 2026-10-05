@@ -24,10 +24,22 @@ func _run():
 		get_tree().quit(1)
 		return
 	var directory := "user://spine-editor-animation-player-%d" % OS.get_process_id()
-	var data := Fixture.create_data(directory)
+	var data := Fixture.create_data(directory, {
+		"move/walk": {"bones": {"root": {"rotate": [{"value": 0}, {"time": 2, "value": 90}]}}},
+		"move/run": {"bones": {"root": {"rotate": [{"value": -90}, {"time": 2, "value": 0}]}}}
+	})
 	var sprites: Array = [Fixture.create_sprite(scene, data, false), Fixture.create_sprite(scene, data, true)]
 	await _settle()
-	var master := Fixture.create_master(scene, sprites)
+	for sprite in sprites:
+		var player: AnimationPlayer = sprite.get_node("Track").get_child(0)
+		_check(player.has_animation("move%2Fwalk_looped") and player.has_animation("move%2Frun"), "folder clips available in editor on " + sprite.name)
+	if failed:
+		for sprite in sprites:
+			sprite.free()
+		Fixture.cleanup(directory)
+		get_tree().quit(1)
+		return
+	var master := Fixture.create_master(scene, sprites, "move%2Fwalk_looped", "move%2Frun")
 	EditorInterface.edit_node(master)
 	await _settle()
 	master.assigned_animation = "cutscene"
@@ -37,7 +49,7 @@ func _run():
 		for sprite in sprites:
 			sprite.update_skeleton(0)
 			var entry: SpineTrackEntry = sprite.get_animation_state().get_track(0)
-			var expected_name := "walk" if time < 1 else "run"
+			var expected_name := "move/walk" if time < 1 else "move/run"
 			var expected_time: float = time if time < 1 else time - 1
 			_check(entry != null, "editor creates native entry on " + sprite.name)
 			if entry != null:
@@ -70,7 +82,7 @@ func _run():
 	for sprite in sprites:
 		sprite.update_skeleton(0.5)
 		_check(is_equal_approx(sprite.get_animation_state().get_track(0).get_track_time(), 0.9), "switching players keeps the old scrubbed entry frozen on " + sprite.name)
-		sprite.get_animation_state().set_animation("walk", true, 0)
+		sprite.get_animation_state().set_animation("move/walk", true, 0)
 		sprite.update_skeleton(0.3)
 		_check(is_equal_approx(sprite.get_animation_state().get_track(0).get_track_time(), 0.3), "inactive track leaves sprite preview alone on " + sprite.name)
 

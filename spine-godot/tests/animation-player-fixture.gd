@@ -1,6 +1,6 @@
 extends RefCounted
 
-static func create_data(directory: String) -> SpineSkeletonDataResource:
+static func create_data(directory: String, extra_animations: Dictionary = {}) -> SpineSkeletonDataResource:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory))
 	var image := Image.create(1, 1, false, Image.FORMAT_RGBA8)
 	image.fill(Color.WHITE)
@@ -8,14 +8,16 @@ static func create_data(directory: String) -> SpineSkeletonDataResource:
 	var atlas_file := FileAccess.open(directory.path_join("pixel.atlas"), FileAccess.WRITE)
 	atlas_file.store_string("pixel.png\nsize: 1, 1\nfilter: Nearest, Nearest\npixel\nbounds: 0, 0, 1, 1\n")
 	atlas_file.close()
+	var animations := {
+		"walk": {"bones": {"root": {"rotate": [{"value": 0}, {"time": 2, "value": 90}]}}},
+		"run": {"bones": {"root": {"rotate": [{"value": -90}, {"time": 2, "value": 0}]}}}
+	}
+	animations.merge(extra_animations)
 	var file := FileAccess.open(directory.path_join("skeleton.spine-json"), FileAccess.WRITE)
 	file.store_string(JSON.stringify({"skeleton": {"spine": "4.3.75"}, "bones": [{"name": "root"}],
 		"slots": [{"name": "slot", "bone": "root", "attachment": "pixel"}],
 		"skins": [{"name": "default", "attachments": {"slot": {"pixel": {"type": "region", "width": 2, "height": 2}}}}],
-		"animations": {
-			"walk": {"bones": {"root": {"rotate": [{"value": 0}, {"time": 2, "value": 90}]}}},
-			"run": {"bones": {"root": {"rotate": [{"value": -90}, {"time": 2, "value": 0}]}}}
-		}}))
+		"animations": animations}))
 	file.close()
 	var atlas := SpineAtlasResource.new()
 	assert(atlas.load_from_atlas_file(directory.path_join("pixel.atlas")) == OK)
@@ -39,7 +41,7 @@ static func create_sprite(scene: Node, data: SpineSkeletonDataResource, three_d:
 	track.owner = scene
 	return sprite
 
-static func create_master(scene: Node, sprites: Array) -> AnimationPlayer:
+static func create_master(scene: Node, sprites: Array, walk_key: String = "walk_looped", run_key: String = "run") -> AnimationPlayer:
 	var timeline_root := Node.new()
 	timeline_root.name = "NestedTimeline"
 	scene.add_child(timeline_root)
@@ -56,8 +58,8 @@ static func create_master(scene: Node, sprites: Array) -> AnimationPlayer:
 		var child_player: AnimationPlayer = sprite.get_node("Track").get_child(0)
 		var index := animation.add_track(Animation.TYPE_ANIMATION)
 		animation.track_set_path(index, scene.get_path_to(child_player))
-		animation.animation_track_insert_key(index, 0, "walk_looped")
-		animation.animation_track_insert_key(index, 1, "run")
+		animation.animation_track_insert_key(index, 0, walk_key)
+		animation.animation_track_insert_key(index, 1, run_key)
 		animation.animation_track_insert_key(index, 3, "-- Empty --")
 	var library := AnimationLibrary.new()
 	library.add_animation("cutscene", animation)
