@@ -364,6 +364,26 @@ namespace Spine.Unity.Editor {
 
 #if AUTO_UPGRADE_TO_43_COMPONENTS
 		public static void UpgradeAllScenesAndPrefabsTo43 () {
+			if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+				return;
+
+			SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
+			string message;
+			try {
+				message = UpgradeAllScenesAndPrefabsTo43Internal();
+			} finally {
+				try {
+					EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
+				} finally {
+					EditorUtility.ClearProgressBar();
+				}
+			}
+
+			EditorUtility.DisplayDialog("Spine 4.3 Migration Complete", message, "OK");
+			Debug.Log("[Spine] " + message);
+		}
+
+		static string UpgradeAllScenesAndPrefabsTo43Internal () {
 			int scenesUpdated = 0;
 			int prefabsUpdated = 0;
 			int componentsUpdated = 0;
@@ -386,15 +406,73 @@ namespace Spine.Unity.Editor {
 					prefabPaths.Add(path);
 			}
 
-			// Process scenes
-			UnityEngine.SceneManagement.Scene currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-			string currentScenePath = currentScene.path;
+			// Process prefabs before scenes to avoid creating overrides at prefab instances in scenes.
+			for (int i = 0; i < prefabPaths.Count; i++) {
+				string prefabPath = prefabPaths[i];
+				try {
+					EditorUtility.DisplayProgressBar("Migrating Spine Components to 4.3",
+						"Processing prefab: " + Path.GetFileName(prefabPath),
+						(float)i / (prefabPaths.Count + scenePaths.Count));
 
-			foreach (string scenePath in scenePaths) {
+					GameObject prefabRoot = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+					if (prefabRoot != null) {
+						bool prefabModified = false;
+
+#if HAS_EDIT_PREFAB_CONTENTS_SCOPE
+						using (var editingScope = new PrefabUtility.EditPrefabContentsScope(prefabPath)) {
+							GameObject prefabContents = editingScope.prefabContentsRoot;
+							IUpgradable[] upgradableComponents = prefabContents.GetComponentsInChildren<IUpgradable>(true);
+							foreach (IUpgradable upgradable in upgradableComponents) {
+								if (upgradable != null) {
+									upgradable.UpgradeTo43();
+									componentsUpdated++;
+									prefabModified = true;
+								}
+							}
+							if (prefabModified) {
+								prefabsUpdated++;
+							}
+						}
+#else // HAS_EDIT_PREFAB_CONTENTS_SCOPE
+						// Unity 2017.1 compatible approach
+						// Instantiate the prefab temporarily to modify it
+						GameObject tempInstance = PrefabUtility.InstantiatePrefab(prefabRoot) as GameObject;
+						if (tempInstance != null) {
+							// Find all IUpgradable components in the prefab instance
+							IUpgradable[] upgradableComponents = tempInstance.GetComponentsInChildren<IUpgradable>(true);
+
+							// Upgrade all found components
+							foreach (IUpgradable upgradable in upgradableComponents) {
+								if (upgradable != null) {
+									upgradable.UpgradeTo43();
+									componentsUpdated++;
+									prefabModified = true;
+								}
+							}
+
+							if (prefabModified) {
+								// Apply changes back to the prefab asset
+								PrefabUtility.ReplacePrefab(tempInstance, prefabRoot, ReplacePrefabOptions.ConnectToPrefab);
+								prefabsUpdated++;
+							}
+
+							// Clean up the temporary instance
+							GameObject.DestroyImmediate(tempInstance);
+						}
+#endif
+					}
+				} catch (System.Exception e) {
+					Debug.LogError(string.Format("Failed to process prefab {0}: {1}", prefabPath, e.Message));
+				}
+			}
+
+			// Process scenes after their referenced prefab assets have been upgraded.
+			for (int i = 0; i < scenePaths.Count; i++) {
+				string scenePath = scenePaths[i];
 				try {
 					EditorUtility.DisplayProgressBar("Upgrading Spine Components",
 						"Processing scene: " + Path.GetFileName(scenePath),
-						(float)scenesUpdated / scenePaths.Count);
+						(float)(prefabPaths.Count + i) / (prefabPaths.Count + scenePaths.Count));
 
 					// Open the scene
 					UnityEngine.SceneManagement.Scene scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(scenePath,
@@ -430,85 +508,13 @@ namespace Spine.Unity.Editor {
 				}
 			}
 
-			// Process prefabs
-			for (int i = 0; i < prefabPaths.Count; i++) {
-				string prefabPath = prefabPaths[i];
-				try {
-					EditorUtility.DisplayProgressBar("Migrating Spine Components to 4.3",
-						"Processing prefab: " + Path.GetFileName(prefabPath),
-						(float)(scenePaths.Count + i) / (scenePaths.Count + prefabPaths.Count));
-
-					GameObject prefabRoot = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-					if (prefabRoot != null) {
-						bool prefabModified = false;
-
-#if HAS_EDIT_PREFAB_CONTENTS_SCOPE
-						using (var editingScope = new PrefabUtility.EditPrefabContentsScope(prefabPath)) {
-						    GameObject prefabContents = editingScope.prefabContentsRoot;
-						    IUpgradable[] upgradableComponents = prefabContents.GetComponentsInChildren<IUpgradable>(true);
-						    foreach (IUpgradable upgradable in upgradableComponents) {
-						        if (upgradable != null) {
-						            upgradable.UpgradeTo43();
-						            componentsUpdated++;
-						            prefabModified = true;
-						        }
-						    }
-						    if (prefabModified) {
-						        prefabsUpdated++;
-						    }
-						}
-#else // HAS_EDIT_PREFAB_CONTENTS_SCOPE
-						// Unity 2017.1 compatible approach
-						// Instantiate the prefab temporarily to modify it
-						GameObject tempInstance = PrefabUtility.InstantiatePrefab(prefabRoot) as GameObject;
-						if (tempInstance != null) {
-							// Find all IUpgradable components in the prefab instance
-							IUpgradable[] upgradableComponents = tempInstance.GetComponentsInChildren<IUpgradable>(true);
-
-							// Upgrade all found components
-							foreach (IUpgradable upgradable in upgradableComponents) {
-								if (upgradable != null) {
-									upgradable.UpgradeTo43();
-									componentsUpdated++;
-									prefabModified = true;
-								}
-							}
-
-							if (prefabModified) {
-								// Apply changes back to the prefab asset
-								PrefabUtility.ReplacePrefab(tempInstance, prefabRoot, ReplacePrefabOptions.ConnectToPrefab);
-								prefabsUpdated++;
-							}
-
-							// Clean up the temporary instance
-							GameObject.DestroyImmediate(tempInstance);
-						}
-#endif
-					}
-				} catch (System.Exception e) {
-					Debug.LogError(string.Format("Failed to process prefab {0}: {1}", prefabPath, e.Message));
-				}
-			}
-
-			// Restore original scene if needed
-			if (!string.IsNullOrEmpty(currentScenePath) && currentScenePath != UnityEngine.SceneManagement.SceneManager.GetActiveScene().path) {
-				UnityEditor.SceneManagement.EditorSceneManager.OpenScene(currentScenePath,
-					UnityEditor.SceneManagement.OpenSceneMode.Single);
-			}
-
-			EditorUtility.ClearProgressBar();
-
-			// Show results
-			string message = string.Format("Migration to Spine 4.3 complete!\n\n" +
+			return string.Format("Migration to Spine 4.3 complete!\n\n" +
 				"Scenes processed: {0}/{1}\n" +
 				"Prefabs processed: {2}/{3}\n" +
 				"Components upgraded: {4}",
 				scenesUpdated, scenePaths.Count,
 				prefabsUpdated, prefabPaths.Count,
 				componentsUpdated);
-
-			EditorUtility.DisplayDialog("Spine 4.3 Migration Complete", message, "OK");
-			Debug.Log("[Spine] " + message);
 		}
 #endif // AUTO_UPGRADE_TO_43_COMPONENTS
 

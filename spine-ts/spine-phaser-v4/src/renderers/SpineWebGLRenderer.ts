@@ -35,12 +35,16 @@ import type { SpineGameObjectRenderer } from "./SpineGameObjectRenderer.js";
 export class SpineWebGLRenderer implements SpineGameObjectRenderer {
 	// Scene plugins are created per scene, so reuse one SceneRenderer per Phaser WebGL renderer.
 	private static readonly sceneRenderers = new WeakMap<Phaser.Renderer.WebGL.WebGLRenderer, SceneRenderer>();
+	private static contextRestoredHandler = (renderer: Phaser.Renderer.WebGL.WebGLRenderer) => {
+		SpineWebGLRenderer.sceneRenderers.get(renderer)?.context.restore();
+	}
 
 	static getSceneRenderer (renderer: Phaser.Renderer.WebGL.WebGLRenderer): SceneRenderer {
 		let sceneRenderer = SpineWebGLRenderer.sceneRenderers.get(renderer);
 		if (!sceneRenderer) {
 			sceneRenderer = new SceneRenderer(renderer.canvas, renderer.gl, true);
 			SpineWebGLRenderer.sceneRenderers.set(renderer, sceneRenderer);
+			renderer.on(Phaser.Renderer.Events.RESTORE_WEBGL, SpineWebGLRenderer.contextRestoredHandler);
 		}
 		return sceneRenderer;
 	}
@@ -50,6 +54,7 @@ export class SpineWebGLRenderer implements SpineGameObjectRenderer {
 	}
 
 	static disposeSceneRenderer (renderer: Phaser.Renderer.WebGL.WebGLRenderer): void {
+		renderer.off(Phaser.Renderer.Events.RESTORE_WEBGL, SpineWebGLRenderer.contextRestoredHandler);
 		SpineWebGLRenderer.sceneRenderers.get(renderer)?.dispose();
 		SpineWebGLRenderer.sceneRenderers.delete(renderer);
 	}

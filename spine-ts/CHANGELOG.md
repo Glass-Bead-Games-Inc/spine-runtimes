@@ -2,10 +2,41 @@
 
 ## Unreleased
 
+### spine-canvas
+
+- Added slot blend mode and clipping attachment support to triangle rendering, now backed by `SkeletonRendererCore`.
+- Added blend/clipping examples and improved canvas example fitting.
+
+## 4.3.13 - 2026-07-24
+
+### spine-construct3
+
+- Added an opt-in slot Z offset to mitigate z-fighting between overlapping attachments.
+
+### spine-phaser-v3
+
+- Automatically restored Spine WebGL resources, including atlas textures, after context restoration.
+
+### spine-phaser-v4
+
+- Restored the legacy `spine-webgl` backend after WebGL context restoration.
+
+## 4.3.12 - 2026-07-23
+
+### spine-core
+
+- Expose restore WebGL logic on ManagedWebGLRenderingContext, so applications that pass an existing WebGL context instead of a canvas can restore all registered WebGL resources.
+
+### spine-construct3
+
+- Added planar 3D rotation for rendering; collisions, hit tests, and other gameplay logic remain 2D. Generated collision bodies synchronize their visual 3D transform.
+
+## 4.3.11 - 2026-07-20
+
 ### **BREAKING CHANGES**
 
 - `spine-phaser-v4` now requires Phaser 4.2.1 and uses Phaser's native `Mesh2D` renderer by default in WebGL games. Pass `{ renderer: "spine-webgl" }` when creating a `SpineGameObject` to retain the previous spine-webgl renderer. Phaser Canvas games use `renderer: "spine-canvas"`.
-- In `spine-phaser-v3` and `spine-phaser-v4`, game-object movement inheritance for skeleton physics constraints is now opt-in and defaults to `0`. The previous `SpineGameObject` physics inheritance fields and methods have been replaced by `SpineGameObject.skeletonPhysics`, using `setPositionInheritance()`, `rotationInheritance`, `resetPosition()`, `resetRotation()`, and `resetTransform()`.
+- In `spine-phaser-v3`, `spine-phaser-v4`, `spine-pixi-v7`, `spine-pixi-v8`, and `spine-threejs`, physics movement inheritance is now opt-in and defaults to `0`; the previous properties and methods have been replaced by the runtime object's `skeletonPhysics` API.
 
 ### spine-core
 
@@ -27,6 +58,14 @@
 - Added APIs for attaching Phaser game objects to Spine slots with before/after placement, attachment timeline following, clipping, and optional position preservation. Attached objects inherit the `SpineGameObject` alpha and scroll factor while rendered. Thanks to stencil-buffer integration, Spine clipping attachments can clip Phaser game objects attached to slots.
 - Shared the spine-webgl `SceneRenderer` between scenes using the same Phaser WebGL renderer and exposed it through `SpinePlugin.webGLRenderer`.
 - Updated all examples to use the unified loading and game-object creation APIs.
+
+### spine-threejs
+
+- Added `SkeletonMesh.skeletonPhysics` with 3D transform movement inheritance.
+
+### spine-pixi-v7 / spine-pixi-v8
+
+- Added `Spine.skeletonPhysics` and fixed rotation inheritance under non-uniformly scaled containers.
 
 ### spine-construct3
 

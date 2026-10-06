@@ -170,7 +170,7 @@ export class SpineGameObject extends DepthMixin(OriginMixin(ComputedSizeMixin(Fl
 				out.x = transform.tx;
 				out.y = transform.ty;
 				out.z = 0;
-				if (readRotation) out.rotation = -Math.atan2(transform.b, transform.a) * 180 / Math.PI;
+				if (readRotation) out.rotation = -(this.rotation + this.getParentRotation()) * 180 / Math.PI;
 			},
 			worldToSkeleton: point => this.gameToSkeleton(point),
 		});

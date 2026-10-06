@@ -40,12 +40,13 @@ export class SkeletonRendererCore {
 	private clipping = new SkeletonClipping();
 	private renderCommands: RenderCommand[] = [];
 
-	render (skeleton: Skeleton, pma = false, inColor?: [number, number, number, number], stride = 2): RenderCommand | undefined {
+	render (skeleton: Skeleton, pma = false, inColor?: [number, number, number, number], stride = 2, slotZOffset = 0): RenderCommand | undefined {
 		this.commandPool.reset();
 		this.renderCommands.length = 0;
 
 		const clipper = this.clipping;
 
+		let z = 0;
 		const drawOrder = skeleton.drawOrder.appliedPose;
 		for (let i = 0, n = drawOrder.length; i < n; i++) {
 			const slot = drawOrder[i];
@@ -196,6 +197,11 @@ export class SkeletonRendererCore {
 			cmd.texture = texture;
 
 			cmd.positions.set(vertices.subarray(0, verticesCount * stride));
+			// Store slot depth before batching so renderers can separate overlapping attachments.
+			if (stride >= 3) {
+				for (let j = 2, n = verticesCount * stride; j < n; j += stride)
+					cmd.positions[j] = z;
+			}
 			cmd.uvs.set(uvs.subarray(0, verticesCount << 1));
 
 			for (let j = 0; j < verticesCount; j++) {
@@ -210,6 +216,7 @@ export class SkeletonRendererCore {
 			}
 
 			this.renderCommands.push(cmd);
+			z += slotZOffset;
 			clipper.clipEnd(slot);
 		}
 

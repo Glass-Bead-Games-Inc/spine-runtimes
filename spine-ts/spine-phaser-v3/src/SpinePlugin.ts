@@ -173,9 +173,15 @@ export class SpinePlugin extends Phaser.Plugins.ScenePlugin {
 	}
 
 	static rendererId = 0;
+	private static contextRestoredHandler = () => SpinePlugin.gameWebGLRenderer?.context.restore();
+
 	boot () {
 		if (this.isWebGL && this.gl) {
-			SpinePlugin.gameWebGLRenderer ||= new SceneRenderer((this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).canvas, this.gl, true);
+			if (!SpinePlugin.gameWebGLRenderer) {
+				const canvas = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).canvas;
+				SpinePlugin.gameWebGLRenderer = new SceneRenderer(canvas, this.gl, true);
+				canvas.addEventListener("webglcontextrestored", SpinePlugin.contextRestoredHandler);
+			}
 		} else if (this.scene) {
 			this.canvasRenderer ||= new SkeletonRenderer(this.scene.sys.context);
 		}
@@ -223,7 +229,11 @@ export class SpinePlugin extends Phaser.Plugins.ScenePlugin {
 
 	gameDestroy () {
 		this.pluginManager.removeGameObject(window.SPINE_GAME_OBJECT_TYPE ?? SPINE_GAME_OBJECT_TYPE, true, true);
-		if (this.webGLRenderer) this.webGLRenderer.dispose();
+		const webGLRenderer = this.webGLRenderer;
+		if (webGLRenderer) {
+			webGLRenderer.canvas.removeEventListener("webglcontextrestored", SpinePlugin.contextRestoredHandler);
+			webGLRenderer.dispose();
+		}
 		SpinePlugin.gameWebGLRenderer = null;
 	}
 
@@ -232,10 +242,10 @@ export class SpinePlugin extends Phaser.Plugins.ScenePlugin {
 		if (this.atlasCache.exists(atlasKey)) return this.atlasCache.get(atlasKey);
 
 		const atlas = new TextureAtlas(this.game.cache.text.get(atlasKey));
-		if (this.isWebGL && this.gl) {
-			const gl = this.gl;
+		if (this.isWebGL && this.webGLRenderer) {
+			const glContext = this.webGLRenderer.context;
 			for (const atlasPage of atlas.pages)
-				atlasPage.setTexture(new GLTexture(gl, this.game.textures.get(`${atlasKey}!${atlasPage.name}`).getSourceImage() as HTMLImageElement | ImageBitmap, atlasPage.pma, false));
+				atlasPage.setTexture(new GLTexture(glContext, this.game.textures.get(`${atlasKey}!${atlasPage.name}`).getSourceImage() as HTMLImageElement | ImageBitmap, atlasPage.pma, false));
 		} else {
 			for (const atlasPage of atlas.pages)
 				atlasPage.setTexture(new CanvasTexture(this.game.textures.get(`${atlasKey}!${atlasPage.name}`).getSourceImage() as HTMLImageElement | ImageBitmap));

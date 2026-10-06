@@ -441,16 +441,20 @@ namespace Spine.Unity {
 			if (isPlaying) {
 				if (physicsPositionInheritanceFactor != Vector2.zero) {
 					Vector3 position = GetPhysicsTransformPosition();
-					positionDelta = (position - lastPosition) / this.MeshScale;
-
-					positionDelta = transform.InverseTransformVector(positionDelta);
-					if (physicsMovementRelativeTo != null) {
-						positionDelta = physicsMovementRelativeTo.TransformVector(positionDelta);
+					float meshScale = this.MeshScale;
+					if (meshScale == 0f) {
+						positionDelta = Vector3.zero;
+					} else {
+						positionDelta = (position - lastPosition) / meshScale;
+						positionDelta = transform.InverseTransformVector(positionDelta);
+						if (physicsMovementRelativeTo != null) {
+							positionDelta = physicsMovementRelativeTo.TransformVector(positionDelta);
+						}
+						positionDelta.x *= physicsPositionInheritanceFactor.x;
+						positionDelta.y *= physicsPositionInheritanceFactor.y;
+						positionDelta.x = Mathf.Clamp(positionDelta.x, -physicsPositionInheritanceLimit.x, physicsPositionInheritanceLimit.x);
+						positionDelta.y = Mathf.Clamp(positionDelta.y, -physicsPositionInheritanceLimit.y, physicsPositionInheritanceLimit.y);
 					}
-					positionDelta.x *= physicsPositionInheritanceFactor.x;
-					positionDelta.y *= physicsPositionInheritanceFactor.y;
-					positionDelta.x = Mathf.Clamp(positionDelta.x, -physicsPositionInheritanceLimit.x, physicsPositionInheritanceLimit.x);
-					positionDelta.y = Mathf.Clamp(positionDelta.y, -physicsPositionInheritanceLimit.y, physicsPositionInheritanceLimit.y);
 					lastPosition = position;
 				}
 				if (physicsRotationInheritanceFactor != 0f) {
@@ -615,6 +619,7 @@ namespace Spine.Unity {
 		}
 
 		public virtual void UpdateMesh (bool calledFromMainThread = true) {
+			if (skeleton == null) return;
 #if USE_THREADED_SKELETON_UPDATE
 			bool canPrepareInstructions = calledFromMainThread || !NeedsMainThreadRendererPreparation;
 #else
@@ -672,6 +677,13 @@ namespace Spine.Unity {
 			MeshRendererBuffers.SmartMesh currentSmartMesh = rendererBuffers.GetCurrentMesh();
 			UpdateMeshAndMaterialsToBuffers(workingSubmeshInstructions, currentSmartMesh, updateTriangles);
 		}
+
+#if SPINE_OPTIONAL_ON_DEMAND_LOADING
+		void HandleOnDemandLoadingWithoutMeshUpdate () {
+			if (Application.isPlaying)
+				HandleOnDemandLoading();
+		}
+#endif
 
 		protected virtual void UpdateMeshAndMaterialsToBuffers (
 			ExposedList<SubmeshInstruction> workingSubmeshInstructions, MeshRendererBuffers.SmartMesh currentSmartMesh,

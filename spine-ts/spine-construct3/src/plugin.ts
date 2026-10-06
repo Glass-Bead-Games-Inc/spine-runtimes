@@ -55,6 +55,7 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 	static PROP_RATIO_WIDTH = "spine-restore-ratio-width";
 	static PROP_RATIO_HEIGHT = "spine-restore-ratio-height";
 	static PROP_BOUNDS_PROVIDER_GROUP = "spine-bounds-provider-group";
+	static PROP_RENDERING_GROUP = "spine-rendering-group";
 	static PROP_BOUNDS_PROVIDER = "spine-bounds-provider";
 	static PROP_BOUNDS_PROVIDER_MOVE = "spine-bounds-provider-move";
 	static PROP_BOUNDS_OFFSET_X = "spine-bounds-offset-x";
@@ -62,6 +63,7 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 	static PROP_BOUNDS_OFFSET_ANGLE = "spine-bounds-offset-angle";
 	static PROP_SKELETON_OFFSET_SCALE_X = "spine-offset-scale-x";
 	static PROP_SKELETON_OFFSET_SCALE_Y = "spine-offset-scale-y";
+	static PROP_SLOT_Z_OFFSET = "spine-slot-z-offset";
 	static PROP_DEBUG_SKELETON = "spine-debug-skeleton";
 	static PROP_ENABLE_COLLISION = "spine-enable-collision";
 
@@ -82,6 +84,7 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 
 		this._info.SetIsResizable(true); // allow to be resized
 		this._info.SetIsRotatable(true); // allow to be rotated
+		this._info.SetIsRotatable3D(true); // allow the planar skeleton to be rotated in 3D
 		this._info.SetHasImage(false);
 		this._info.SetSupportsEffects(true); // allow effects
 		this._info.SetMustPreDraw(true);
@@ -91,12 +94,12 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 		this._info.AddCommonPositionACEs(); // Position: Set X/Y, Set position, etc.
 		this._info.AddCommonSizeACEs(); // Size: Set size, width, height
 		this._info.AddCommonAngleACEs(); // Angle: Set angle, rotate
+		this._info.AddCommon3DRotationACEs(); // 3D rotation: Euler angles and quaternion
 		this._info.AddCommonAppearanceACEs(); // Appearance: Set opacity, visible, color
 		this._info.AddCommonZOrderACEs(); // Z order: bring to front/back, move up/down
 		this._info.AddCommonSceneGraphACEs(); // Enables hierarchies: parent/children relations
 
 		this._info.SetRuntimeModuleMainScript("c3runtime/main.js");
-		this._info.AddC3RuntimeScript("c3runtime/spine-construct3-lib.js");
 		this._info.AddFileDependency({
 			filename: "c3runtime/spine-construct3-lib.js",
 			type: "external-runtime-script"
@@ -149,6 +152,9 @@ const PLUGIN_CLASS = class SpineC3Plugin extends SDK.IPluginBase {
 				},
 				callbackType: "for-each-instance"
 			}),
+
+			new SDK.PluginProperty("group", SpineC3Plugin.PROP_RENDERING_GROUP),
+			new SDK.PluginProperty("float", SpineC3Plugin.PROP_SLOT_Z_OFFSET, 0),
 		]);
 
 		SDK.Lang.PopContext(); // .properties
@@ -167,14 +173,16 @@ async function HandleDataInMyFormat (droppedFileName: string, file: SDK.IZipFile
 
 	const list = zipFile.GetFileList();
 
-	const skelFileName = list.find((entry) => entry.endsWith(".skel") || entry.endsWith(".json"));
-	if (!skelFileName) return false;
+	const skeletonFiles = list.filter(entry => !entry.includes("/") && (entry.endsWith(".skel") || entry.endsWith(".json")));
+	if (skeletonFiles.length !== 1) return false;
+	const skelFileName = skeletonFiles[0];
 
 	const skeletonEntry = zipFile.GetEntry(skelFileName);
 	if (!skeletonEntry) return false;
 
-	const atlasFileName = list.find((entry) => entry.endsWith(".atlas"));
-	if (!atlasFileName) return false;
+	const atlasFiles = list.filter(entry => !entry.includes("/") && entry.endsWith(".atlas"));
+	if (atlasFiles.length !== 1) return false;
+	const atlasFileName = atlasFiles[0];
 
 	const atlasEntry = zipFile.GetEntry(atlasFileName);
 	if (!atlasEntry) return false;
@@ -192,25 +200,23 @@ async function HandleDataInMyFormat (droppedFileName: string, file: SDK.IZipFile
 	const layoutView = opts.layoutView;
 	const project = layoutView.GetProject();
 
-	const blobsLoading = blobsToLoad.map(name => zipFile.ReadBlob(name))
+	const blobsLoading = blobsToLoad.map(name => zipFile.ReadBlob(name));
 	const [skeletonBlob, atlasBlob, ...pagesBlob] = await Promise.all(blobsLoading);
 
 	project.AddOrReplaceProjectFile(skeletonBlob, skelFileName, "general");
-	const projectSkeletonFile = project.GetProjectFileByExportPath(skelFileName)
+	const projectSkeletonFile = project.GetProjectFileByExportPath(skelFileName);
 	if (!projectSkeletonFile) return false;
 
 	project.AddOrReplaceProjectFile(atlasBlob, atlasFileName, "general");
 	const projectAtlasFile = project.GetProjectFileByExportPath(atlasFileName);
 	if (!projectAtlasFile) return false;
 
-
 	pagesBlob.forEach((page, index) => {
 		project.AddOrReplaceProjectFile(page, atlas.pages[index].name, "general");
 	});
 
-	const objectTypeName = droppedFileName.replace(".zip", "");
-	const objectType = project.GetObjectTypeByName(objectTypeName) || await project.CreateObjectType(PLUGIN_ID, objectTypeName);
-
+	const objectTypeName = droppedFileName.replace(/\.zip$/i, "");
+	const objectType = await project.CreateObjectType(PLUGIN_ID, objectTypeName);
 	const wi = objectType.CreateWorldInstance(layoutView.GetActiveLayer());
 	wi.SetXY(opts.layoutX, opts.layoutY);
 
@@ -220,13 +226,6 @@ async function HandleDataInMyFormat (droppedFileName: string, file: SDK.IZipFile
 	return true;
 }
 
-const originalSet = WeakMap.prototype.set;
-const capturedMappings = new Map();
-
-WeakMap.prototype.set = function (key, value) {
-	capturedMappings.set(key, value);
-	return originalSet.call(this, key, value);
-};
 SDK.Plugins.EsotericSoftware_SpineConstruct3 = PLUGIN_CLASS;
 
 PLUGIN_CLASS.Register(PLUGIN_ID, PLUGIN_CLASS);
